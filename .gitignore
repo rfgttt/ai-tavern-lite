@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/.venv/
+backend/build/
+backend/dist/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node / frontend build
+frontend/node_modules/
+node_modules/
+frontend/dist/
+frontend/.vite/
+.npm-cache/
+
+# Runtime data and secrets
+backend/data/
+data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+backend/tmp*
+*.tmp
+*.temp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Local production volume
+server-data/
+.env.production
+
+# Generated verification artifacts
+self-test-results/

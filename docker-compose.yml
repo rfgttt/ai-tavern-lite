@@ -1,0 +1,24 @@
+services:
+  ai-tavern:
+    build: .
+    restart: unless-stopped
+    environment:
+      AI_TAVERN_ENVIRONMENT: production
+      AI_TAVERN_AUTH_MODE: token
+      AI_TAVERN_ACCESS_TOKEN: ${AI_TAVERN_ACCESS_TOKEN:?set a random 32+ character token}
+      AI_TAVERN_HOST: 0.0.0.0
+      AI_TAVERN_DATABASE_URL: sqlite:////app/data/ai_tavern.db
+      AI_TAVERN_ALLOWED_HOSTS: ${AI_TAVERN_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      AI_TAVERN_ALLOWED_ORIGINS: ${AI_TAVERN_ALLOWED_ORIGINS:-}
+      AI_TAVERN_EXPOSE_ADMIN_ENDPOINTS: "false"
+      AI_TAVERN_TRUST_PROXY_HEADERS: "true"
+      AI_TAVERN_RATE_LIMIT_PER_MINUTE: "120"
+      AI_TAVERN_MAX_REQUEST_SIZE_MB: "25"
+      AI_TAVERN_OUTBOUND_HOST_ALLOWLIST: ${AI_TAVERN_OUTBOUND_HOST_ALLOWLIST:-}
+    volumes:
+      - tavern-data:/app/data
+    ports:
+      - "127.0.0.1:8000:8000"
+
+volumes:
+  tavern-data:
