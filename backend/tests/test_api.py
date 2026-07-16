@@ -163,6 +163,36 @@ class TestCharacterAPI:
         app.dependency_overrides[get_db] = override_get_db
         return TestClient(app)
 
+    def test_create_character_from_editor(self, test_db):
+        """Test creating a character without importing a card file."""
+        client = self._get_client(test_db)
+
+        response = client.post(
+            "/api/characters",
+            json={
+                "name": "  新建角色  ",
+                "description": "由内置编辑器创建",
+                "personality": "沉着",
+                "scenario": "雨夜酒馆",
+                "first_message": "欢迎。",
+            },
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "新建角色"
+
+        from app.db.models import Character
+        created = test_db.query(Character).filter(Character.id == data["id"]).one()
+        normalized = json.loads(created.normalized_json)
+        assert normalized["name"] == "新建角色"
+        assert normalized["first_mes"] == "欢迎。"
+
+    def test_create_character_rejects_blank_name(self, test_db):
+        client = self._get_client(test_db)
+        response = client.post("/api/characters", json={"name": "   "})
+        assert response.status_code == 422
+
     def test_import_json_character(self, test_db, sample_v2_character_json):
         """Test importing a JSON character card via API."""
         client = self._get_client(test_db)

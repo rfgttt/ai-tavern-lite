@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   AppSettings,
   Character,
+  CharacterDraft,
   ChatSession,
   LorebookTrigger,
   Message,
@@ -54,6 +55,8 @@ interface AppState {
 
   fetchCharacters: () => Promise<void>
   selectCharacter: (char: Character | null) => void
+  createCharacter: (data: CharacterDraft) => Promise<Character>
+  updateCharacter: (id: string, data: CharacterDraft) => Promise<Character>
   importCharacter: (file: File) => Promise<Character>
   deleteCharacter: (id: string) => Promise<void>
 
@@ -203,6 +206,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  createCharacter: async (data: CharacterDraft) => {
+    const response = await api.createCharacter(data)
+    set((state) => ({ characters: [response.data, ...state.characters] }))
+    return response.data
+  },
+
+  updateCharacter: async (id: string, data: CharacterDraft) => {
+    const response = await api.updateCharacter(id, data)
+    set((state) => ({
+      characters: state.characters.map((character) => character.id === id ? response.data : character),
+      selectedCharacter: state.selectedCharacter?.id === id ? response.data : state.selectedCharacter,
+    }))
+    return response.data
+  },
+
   importCharacter: async (file: File) => {
     const res = await api.importCharacter(file)
     await get().fetchCharacters()
@@ -211,18 +229,21 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   deleteCharacter: async (id: string) => {
     await api.deleteCharacter(id)
-    await get().fetchCharacters()
-    if (get().selectedCharacter?.id === id) {
-      set({
-        selectedCharacter: null,
-        sessions: [],
-        currentSession: null,
-        messages: [],
-        runtime: null,
-        timeline: [],
-        activeLorebook: [],
-      })
-    }
+    set((state) => {
+      const wasSelected = state.selectedCharacter?.id === id
+      return {
+        characters: state.characters.filter((character) => character.id !== id),
+        ...(wasSelected ? {
+          selectedCharacter: null,
+          sessions: [],
+          currentSession: null,
+          messages: [],
+          runtime: null,
+          timeline: [],
+          activeLorebook: [],
+        } : {}),
+      }
+    })
   },
 
   fetchSessions: async (characterId?: string) => {

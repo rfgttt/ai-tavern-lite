@@ -10,6 +10,14 @@ export interface Character {
   updated_at: string
 }
 
+export interface CharacterDraft {
+  name: string
+  description: string
+  personality: string
+  scenario: string
+  first_message: string
+}
+
 export interface ChatSession {
   id: string
   character_id: string

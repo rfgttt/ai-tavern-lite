@@ -1,4 +1,4 @@
-import type { Character, ChatSession } from '@/types'
+import type { Character, ChatSession, Lorebook } from '@/types'
 
 export const charactersFixture: Character[] = [
   {
@@ -36,3 +36,23 @@ export const sessionsFixture: ChatSession[] = [
     updated_at: '2026-07-16T00:00:00Z',
   },
 ]
+
+export const lorebookFixture: Lorebook = {
+  entries: [
+    {
+      id: 1,
+      keys: ['图书馆'],
+      secondary_keys: [],
+      comment: '古老图书馆',
+      content: '这里收藏着失落的魔法书。',
+      constant: false,
+      selective: false,
+      enabled: true,
+      insertion_order: 0,
+      position: 'before_char',
+      use_regex: false,
+      probability: 100,
+      extensions: {},
+    },
+  ],
+}

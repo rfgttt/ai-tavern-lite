@@ -50,6 +50,46 @@ def list_characters(db: Session = Depends(get_db)):
     return characters
 
 
+@router.post("", response_model=CharacterResponse, status_code=201)
+def create_character(
+    payload: CharacterCreate,
+    db: Session = Depends(get_db),
+):
+    """Create a character from the built-in editor without requiring a card file."""
+    try:
+        normalized = json.loads(payload.normalized_json or "{}")
+        raw_data = json.loads(payload.raw_json or "{}")
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=f"角色数据不是有效 JSON: {exc}")
+
+    if not isinstance(normalized, dict) or not isinstance(raw_data, dict):
+        raise HTTPException(status_code=400, detail="角色数据必须是 JSON 对象")
+
+    normalized.update({
+        "name": payload.name.strip(),
+        "description": payload.description,
+        "personality": payload.personality,
+        "scenario": payload.scenario,
+        "first_mes": payload.first_message,
+    })
+
+    character = Character(
+        name=payload.name.strip(),
+        description=payload.description,
+        personality=payload.personality,
+        scenario=payload.scenario,
+        first_message=payload.first_message,
+        normalized_json=json.dumps(normalized, ensure_ascii=False),
+        raw_json=json.dumps(raw_data, ensure_ascii=False),
+        avatar_path=payload.avatar_path,
+    )
+    db.add(character)
+    db.commit()
+    db.refresh(character)
+    logger.info(f"Character created: {character.name} (ID: {character.id})")
+    return character
+
+
 @router.post("/import", response_model=CharacterResponse)
 async def import_character(
     file: UploadFile = File(...),

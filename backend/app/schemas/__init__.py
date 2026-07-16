@@ -12,6 +12,14 @@ class CharacterBase(BaseModel):
     scenario: str = Field(default="", max_length=300_000)
     first_message: str = Field(default="", max_length=200_000)
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("角色名称不能为空")
+        return cleaned
+
 
 class CharacterCreate(CharacterBase):
     raw_json: str = "{}"

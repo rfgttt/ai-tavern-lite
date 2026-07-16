@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type {
   Character,
+  CharacterDraft,
   ChatSession,
   Message,
   Memory,
@@ -34,6 +35,7 @@ export const healthCheck = () => api.get('/health')
 
 // Characters
 export const getCharacters = () => api.get<Character[]>('/characters')
+export const createCharacter = (data: CharacterDraft) => api.post<Character>('/characters', data)
 export const getCharacter = (id: string) => api.get<Character>(`/characters/${id}`)
 export const getCharacterCompatibility = (id: string) => api.get<CardCompatibilityReport>(`/characters/${id}/compatibility`)
 export const importCharacter = (file: File) => {

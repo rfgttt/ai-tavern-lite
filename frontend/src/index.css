@@ -991,3 +991,56 @@
   letter-spacing: .08em;
   opacity: .78;
 }
+
+/* Character management workflow */
+.character-manager { width: min(52rem, 100%); }
+.character-manager__tabs { display: flex; gap: .35rem; padding: .65rem 1rem 0; border-bottom: 1px solid rgba(255,255,255,.055); }
+.character-manager__tabs button { display: inline-flex; align-items: center; gap: .4rem; padding: .65rem .8rem; border-bottom: 2px solid transparent; color: #91877b; font-size: .76rem; transition: color .2s, border-color .2s; }
+.character-manager__tabs button:hover:not(:disabled) { color: #ddd3c5; }
+.character-manager__tabs button.is-active { color: #e4b966; border-color: #d29a43; }
+.character-manager__tabs button:disabled { opacity: .4; cursor: not-allowed; }
+.character-manager__tabs button span { color: #776f66; font-size: .64rem; }
+.character-form { display: grid; gap: .85rem; }
+.character-form > label, .lorebook-entry-grid > label { display: grid; gap: .35rem; }
+.character-form > label > span, .lorebook-entry-grid > label > span { color: #aaa095; font-size: .72rem; font-weight: 600; }
+.manager-actions { display: flex; justify-content: flex-end; gap: .55rem; padding-top: .25rem; }
+.form-error { color: #f29a93; font-size: .68rem; }
+.input-error { border-color: rgba(242,115,108,.72) !important; box-shadow: 0 0 0 2px rgba(242,115,108,.1); }
+.manager-empty { padding: 2rem 1rem; text-align: center; color: #847b70; font-size: .74rem; }
+.lorebook-editor { display: grid; gap: .8rem; }
+.lorebook-editor__toolbar { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
+.lorebook-editor__toolbar strong { color: #e6ded1; font-size: .82rem; }
+.lorebook-editor__toolbar p { color: #81786f; font-size: .68rem; margin-top: .15rem; }
+.lorebook-entry-list { display: grid; gap: .65rem; }
+.lorebook-entry-card { border: 1px solid rgba(255,255,255,.065); border-radius: .75rem; background: rgba(255,255,255,.022); overflow: hidden; }
+.lorebook-entry-card__header { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .65rem .75rem; border-bottom: 1px solid rgba(255,255,255,.05); }
+.lorebook-entry-card__header strong { color: #ded5c8; font-size: .76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lorebook-entry-card__header > div { display: flex; align-items: center; gap: .45rem; }
+.lorebook-entry-card__header button { color: #9d9185; padding: .35rem; border-radius: .4rem; }
+.lorebook-entry-card__header button:hover { color: #ef8d87; background: rgba(200,75,75,.1); }
+.toggle-label { display: inline-flex; align-items: center; gap: .3rem; color: #aaa095; font-size: .67rem; }
+.lorebook-entry-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .7rem; padding: .75rem; }
+.lorebook-entry-grid__wide { grid-column: 1 / -1; }
+.lorebook-entry-options { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; padding-top: 1.25rem; }
+.lorebook-entry-options label { display: inline-flex; align-items: center; gap: .3rem; color: #aaa095; font-size: .67rem; }
+.confirm-dialog { width: min(28rem,100%); overflow: hidden; border-radius: 1rem; border: 1px solid rgba(214,180,112,.22); background: rgba(26,22,20,.99); box-shadow: 0 24px 70px rgba(0,0,0,.5); }
+.confirm-dialog > header { display: flex; align-items: center; justify-content: space-between; padding: .9rem 1rem; border-bottom: 1px solid rgba(255,255,255,.065); }
+.confirm-dialog > header > div { display: flex; align-items: center; gap: .5rem; color: #e4b966; font-weight: 700; }
+.confirm-dialog > header button { color: #a69c90; }
+.confirm-dialog__body { padding: 1rem; }
+.confirm-dialog__body p { color: #b0a69a; font-size: .78rem; line-height: 1.6; }
+.confirm-dialog__actions { display: flex; justify-content: flex-end; gap: .55rem; margin-top: 1rem; }
+.toast-stack { position: fixed; right: 1rem; bottom: 1rem; z-index: 200; display: grid; gap: .55rem; width: min(23rem,calc(100vw - 2rem)); pointer-events: none; }
+.toast { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .55rem; padding: .75rem .8rem; border: 1px solid rgba(255,255,255,.09); border-radius: .7rem; color: #e8dfd2; background: rgba(28,24,22,.96); box-shadow: 0 14px 36px rgba(0,0,0,.4); backdrop-filter: blur(10px); pointer-events: auto; font-size: .76rem; }
+.toast--success > svg { color: #7bd39f; }
+.toast--error > svg { color: #ef8d87; }
+.toast--info > svg { color: #d9ad5e; }
+.toast button { color: #8f857a; padding: .2rem; }
+
+@media (max-width: 640px) {
+  .character-manager__tabs { overflow-x: auto; }
+  .lorebook-editor__toolbar { align-items: flex-start; flex-direction: column; }
+  .lorebook-entry-grid { grid-template-columns: 1fr; }
+  .lorebook-entry-grid__wide { grid-column: auto; }
+  .manager-actions { position: sticky; bottom: 0; padding: .75rem 0 .2rem; background: linear-gradient(180deg,transparent,rgba(26,22,20,.98) 30%); }
+}

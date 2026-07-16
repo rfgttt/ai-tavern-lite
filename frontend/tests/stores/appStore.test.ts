@@ -62,4 +62,33 @@ describe('appStore character and session actions', () => {
     })
     expect(useAppStore.getState().sessions).toEqual(sessionsFixture)
   })
+  it('creates and updates characters while keeping the selected record current', async () => {
+    const created = await useAppStore.getState().createCharacter({
+      name: '雾叶泠',
+      description: '魔法少女',
+      personality: '坚定',
+      scenario: '雨夜',
+      first_message: '晚上好。',
+    })
+
+    expect(created.id).toBe('character-created')
+    expect(useAppStore.getState().characters[0].name).toBe('雾叶泠')
+
+    useAppStore.setState({
+      characters: charactersFixture,
+      selectedCharacter: charactersFixture[0],
+    })
+    const updated = await useAppStore.getState().updateCharacter('character-linya', {
+      name: '林雅（编辑后）',
+      description: '新的描述',
+      personality: '更坚定',
+      scenario: '清晨酒馆',
+      first_message: '早上好。',
+    })
+
+    expect(updated.name).toBe('林雅（编辑后）')
+    expect(useAppStore.getState().selectedCharacter?.name).toBe('林雅（编辑后）')
+    expect(useAppStore.getState().characters[0].description).toBe('新的描述')
+  })
+
 })

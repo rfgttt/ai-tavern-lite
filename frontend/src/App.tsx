@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import AppShell from '@/components/AppShell'
+import { ToastProvider } from '@/components/ui/ToastProvider'
 import { useAppStore } from '@/stores/appStore'
 import { getCharacter, getSessions } from '@/api'
 
@@ -43,7 +44,7 @@ function App() {
     return () => { delete window.__AI_TAVERN_TEST__ }
   }, [])
 
-  return <AppShell />
+  return <ToastProvider><AppShell /></ToastProvider>
 }
 
 export default App
