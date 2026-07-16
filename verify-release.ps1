@@ -239,6 +239,12 @@ try {
             Write-Host "[SKIP] npm ci" -ForegroundColor Yellow
         }
 
+        & npm run test:typecheck
+        Assert-LastExitCode "Frontend test typecheck"
+
+        & npm run test:run
+        Assert-LastExitCode "Frontend tests"
+
         & npm run build
         Assert-LastExitCode "Frontend build"
     }

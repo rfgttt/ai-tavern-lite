@@ -122,6 +122,22 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+Write-Host "检查前端测试类型..." -ForegroundColor Yellow
+npm run test:typecheck
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[错误] 前端测试类型检查失败" -ForegroundColor Red
+    Read-Host "按回车退出"
+    exit 1
+}
+
+Write-Host "运行前端测试..." -ForegroundColor Yellow
+npm run test:run
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[错误] 前端测试未通过" -ForegroundColor Red
+    Read-Host "按回车退出"
+    exit 1
+}
+
 Write-Host "构建前端..." -ForegroundColor Yellow
 npm run build
 if ($LASTEXITCODE -ne 0) {

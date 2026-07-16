@@ -56,3 +56,4 @@ server-data/
 
 # Generated verification artifacts
 self-test-results/
+frontend/coverage/
