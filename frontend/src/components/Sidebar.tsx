@@ -26,6 +26,7 @@ import { exportCharacter as exportCharacterApi, exportSession as exportSessionAp
 import { useAppStore } from '@/stores/appStore'
 import type { Character } from '@/types'
 import { getErrorMessage } from '@/lib/errors'
+import { getModelConfigurationIssue } from '@/lib/modelConfig'
 import PersonaManager from './PersonaManager'
 import GroupManager from './GroupManager'
 import BranchManager from './BranchManager'
@@ -69,6 +70,7 @@ export default function Sidebar() {
     renameSession,
     deleteSession,
     deleteCharacter,
+    fetchSettings,
     settings,
   } = useAppStore()
 
@@ -114,11 +116,38 @@ export default function Sidebar() {
     }
   }
 
+  const openModelSettings = () => navigate('/settings')
+
+  const ensureModelConfiguration = async () => {
+    if (!useAppStore.getState().settings) {
+      try {
+        await fetchSettings()
+      } catch (error) {
+        showToast(getErrorMessage(error, '模型设置加载失败'), 'error', {
+          label: '打开设置',
+          onClick: openModelSettings,
+        })
+        return false
+      }
+    }
+
+    const issue = getModelConfigurationIssue(useAppStore.getState().settings)
+    if (!issue) return true
+
+    showToast(issue.message, 'error', {
+      label: '打开设置',
+      onClick: openModelSettings,
+    })
+    return false
+  }
+
   const handleNewChat = async () => {
     if (!selectedCharacter) {
       showToast('请先选择一个角色', 'info')
       return
     }
+    if (!(await ensureModelConfiguration())) return
+
     try {
       const session = await createSession(selectedCharacter.id)
       await selectSession(session)

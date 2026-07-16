@@ -248,6 +248,80 @@ class TestCharacterAPI:
         assert "extensions" in norm
         assert norm["extensions"]["custom_extension"] == "extension_value"
 
+    def test_export_character_emits_strict_ccv3(self, db_with_character):
+        db, char = db_with_character
+        client = self._get_client(db)
+
+        normalized = json.loads(char.normalized_json)
+        normalized["creator_notes"] = ""
+        normalized["creatorcomment"] = "旧版作者备注"
+        normalized["ai_tavern_runtime"] = {"mode": "relationship"}
+        normalized["character_book"] = {
+            "entries": [
+                {
+                    "id": None,
+                    "keys": ["魔法"],
+                    "content": "古代图书馆",
+                    "enabled": True,
+                    "insertion_order": 0,
+                    "use_regex": False,
+                    "probability": 75,
+                    "extensions": {},
+                }
+            ]
+        }
+        char.normalized_json = json.dumps(normalized, ensure_ascii=False)
+        db.commit()
+
+        response = client.get(f"/api/characters/{char.id}/export")
+        assert response.status_code == 200
+
+        card = response.json()
+        assert card["spec"] == "chara_card_v3"
+        assert card["spec_version"] == "3.0"
+        data = card["data"]
+        assert "spec" not in data
+        assert "spec_version" not in data
+        assert "creatorcomment" not in data
+        assert "ai_tavern_runtime" not in data
+        assert data["creator_notes"] == "旧版作者备注"
+        assert data["extensions"]["ai_tavern_runtime"] == {"mode": "relationship"}
+
+        character_book = data["character_book"]
+        assert character_book["extensions"] == {}
+        entry = character_book["entries"][0]
+        assert "id" not in entry
+        assert "probability" not in entry
+        assert entry["extensions"]["probability"] == 75
+
+    def test_exported_probability_survives_reimport(self, db_with_character):
+        db, char = db_with_character
+        client = self._get_client(db)
+
+        normalized = json.loads(char.normalized_json)
+        normalized["character_book"] = {
+            "entries": [
+                {
+                    "keys": ["魔法"],
+                    "content": "古代图书馆",
+                    "enabled": True,
+                    "insertion_order": 0,
+                    "use_regex": False,
+                    "probability": 42,
+                    "extensions": {},
+                }
+            ]
+        }
+        char.normalized_json = json.dumps(normalized, ensure_ascii=False)
+        db.commit()
+
+        exported = client.get(f"/api/characters/{char.id}/export").json()
+
+        from app.services.character_parser.parser import parse_json_character
+        reparsed, _ = parse_json_character(exported)
+        assert reparsed.character_book["entries"][0]["probability"] == 42
+        assert reparsed.character_book["entries"][0]["extensions"]["probability"] == 42
+
     def test_delete_character(self, db_with_character):
         """Test deleting a character."""
         db, char = db_with_character

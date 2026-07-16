@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   BookMarked,
   Copy,
@@ -16,13 +17,17 @@ import {
   X,
 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
+import { getModelConfigurationIssue } from '@/lib/modelConfig'
 import type { Message } from '@/types'
 import PromptPreviewModal from './PromptPreviewModal'
 import ChoiceBar from './runtime/ChoiceBar'
 import RuntimeMessageMeta from './runtime/RuntimeMessageMeta'
 import StructuredMessage from './messages/StructuredMessage'
+import { useToast } from './ui/ToastProvider'
 
 export default function ChatView() {
+  const navigate = useNavigate()
+  const { showToast } = useToast()
   const {
     selectedCharacter,
     currentSession,
@@ -49,6 +54,7 @@ export default function ChatView() {
     refreshCurrentSession,
     setDraft,
     setScrollPosition,
+    fetchSettings,
     settings,
   } = useAppStore()
 
@@ -126,20 +132,55 @@ export default function ChatView() {
     if (currentSession) setScrollPosition(currentSession.id, target.scrollTop)
   }
 
-  const submitText = (content: string) => {
+  const ensureModelConfiguration = async () => {
+    if (!useAppStore.getState().settings) {
+      try {
+        await fetchSettings()
+      } catch {
+        showToast('模型设置加载失败，请打开设置确认后重试。', 'error', {
+          label: '打开设置',
+          onClick: () => navigate('/settings'),
+        })
+        return false
+      }
+    }
+
+    const issue = getModelConfigurationIssue(useAppStore.getState().settings)
+    if (!issue) return true
+
+    showToast(issue.message, 'error', {
+      label: '打开设置',
+      onClick: () => navigate('/settings'),
+    })
+    return false
+  }
+
+  const submitText = async (content: string) => {
     const value = content.trim()
     if (!value || generatingMessageId) return
+    if (!(await ensureModelConfiguration())) return
+
     setPendingSubmittedText(value)
     void sendMessage(value)
     autoScrollRef.current = true
     requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
+  const submitChoice = async (choice: string) => {
+    if (generatingMessageId || !(await ensureModelConfiguration())) return
+    await sendChoice(choice)
+  }
+
+  const regenerateWithConfigurationCheck = async () => {
+    if (generatingMessageId || !(await ensureModelConfiguration())) return
+    await regenerateLast()
+  }
+
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.nativeEvent.isComposing) return
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      submitText(inputValue)
+      void submitText(inputValue)
     }
   }
 
@@ -227,7 +268,7 @@ export default function ChatView() {
         <div className="flex items-center gap-1.5">
           <span className="hidden md:inline text-[10px] text-tavern-text-muted px-2 py-1 rounded-md bg-tavern-bg-tertiary/40 border border-tavern-border-subtle">{settings?.model || '默认模型'}</span>
           <button onClick={() => setShowPromptPreview(true)} className="btn btn-secondary btn-sm" title="Prompt 预览"><Eye size={14}/><span className="hidden sm:inline">Prompt</span></button>
-          {lastAssistant && !generatingMessageId ? <button onClick={() => void regenerateLast()} className="btn btn-secondary btn-sm" title="重新生成并恢复旧状态"><RotateCcw size={14}/><span className="hidden sm:inline">重生成</span></button> : null}
+          {lastAssistant && !generatingMessageId ? <button onClick={() => void regenerateWithConfigurationCheck()} className="btn btn-secondary btn-sm" title="重新生成并恢复旧状态"><RotateCcw size={14}/><span className="hidden sm:inline">重生成</span></button> : null}
           <button onClick={() => toggleRuntimeDrawer(true)} className="btn btn-secondary btn-sm lg:hidden" title="打开沉浸状态面板"><PanelRightOpen size={15}/></button>
         </div>
       </header>
@@ -303,7 +344,7 @@ export default function ChatView() {
 
       <footer className="immersive-composer-shell">
         <div className="max-w-4xl mx-auto">
-          <ChoiceBar choices={choices} disabled={Boolean(generatingMessageId)} onChoose={(choice) => void sendChoice(choice)}/>
+          <ChoiceBar choices={choices} disabled={Boolean(generatingMessageId)} onChoose={(choice) => void submitChoice(choice)}/>
           <div className="immersive-composer">
             <textarea
               data-testid="chat-composer"
@@ -321,7 +362,7 @@ export default function ChatView() {
             {generatingMessageId ? (
               <button onClick={() => void stopGeneration()} className="immersive-send immersive-send--stop" title="停止生成"><Square size={17} fill="currentColor"/></button>
             ) : (
-              <button onClick={() => submitText(inputValue)} className="immersive-send" disabled={!inputValue.trim()} title="发送"><Send size={18}/></button>
+              <button onClick={() => void submitText(inputValue)} className="immersive-send" disabled={!inputValue.trim()} title="发送"><Send size={18}/></button>
             )}
           </div>
           <div className="immersive-composer-meta">

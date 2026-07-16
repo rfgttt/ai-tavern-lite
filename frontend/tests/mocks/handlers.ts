@@ -1,7 +1,8 @@
 import { http, HttpResponse } from 'msw'
-import { charactersFixture, lorebookFixture, sessionsFixture } from './fixtures'
+import { appSettingsFixture, charactersFixture, lorebookFixture, sessionsFixture } from './fixtures'
 
 export const handlers = [
+  http.get('*/api/settings', () => HttpResponse.json(appSettingsFixture)),
   http.get('*/api/characters', () => HttpResponse.json(charactersFixture)),
   http.post('*/api/characters', async ({ request }) => {
     const body = (await request.json()) as Record<string, string>

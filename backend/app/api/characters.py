@@ -14,7 +14,7 @@ from ..schemas import (
     Lorebook, LorebookEntry
 )
 from ..services.character_parser.parser import (
-    parse_json_character, parse_png_character, export_character_v3
+    parse_json_character, parse_png_character, export_character_v3, validate_character_card_v3
 )
 from ..core.config import settings
 from ..core.logging import logger
@@ -267,6 +267,13 @@ def export_character(character_id: str, db: Session = Depends(get_db)):
             setattr(normalized, key, value)
 
     export_data = export_character_v3(normalized, raw_dict)
+    validation_errors = validate_character_card_v3(export_data)
+    if validation_errors:
+        logger.error("Character export validation failed character=%s errors=%s", character_id, validation_errors)
+        raise HTTPException(
+            status_code=500,
+            detail="角色卡导出校验失败：" + "；".join(validation_errors),
+        )
     return export_data
 
 
@@ -305,7 +312,11 @@ def update_lorebook(
         norm = {}
 
     entries_dicts = [e.model_dump() for e in lorebook.entries]
-    norm["character_book"] = {"entries": entries_dicts}
+    existing_book = norm.get("character_book")
+    character_book = dict(existing_book) if isinstance(existing_book, dict) else {}
+    character_book.setdefault("extensions", {})
+    character_book["entries"] = entries_dicts
+    norm["character_book"] = character_book
     character.normalized_json = json.dumps(norm, ensure_ascii=False)
 
     db.commit()

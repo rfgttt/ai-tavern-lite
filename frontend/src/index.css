@@ -1036,6 +1036,8 @@
 .toast--error > svg { color: #ef8d87; }
 .toast--info > svg { color: #d9ad5e; }
 .toast button { color: #8f857a; padding: .2rem; }
+.toast .toast__action { color: #e6bd72; padding: .28rem .48rem; border: 1px solid rgba(217,173,94,.32); border-radius: .42rem; white-space: nowrap; font-weight: 600; }
+.toast .toast__action:hover { color: #f2d39b; background: rgba(217,173,94,.1); border-color: rgba(217,173,94,.52); }
 
 @media (max-width: 640px) {
   .character-manager__tabs { overflow-x: auto; }

@@ -1,5 +1,6 @@
 import json
 import base64
+import copy
 import re
 from typing import Dict, Any, Optional, Tuple
 from PIL import Image
@@ -118,7 +119,7 @@ def parse_json_character(json_data: Dict[str, Any]) -> Tuple[CharacterCardNormal
 
     # Character book / lorebook
     cb = _safe_get(source, "character_book", default=_safe_get(json_data, "character_book", default={}))
-    normalized.character_book = cb if isinstance(cb, dict) else {}
+    normalized.character_book = _normalize_lorebook_for_internal(cb)
 
     # Group only greetings
     gog = _safe_get(source, "group_only_greetings", default=_safe_get(json_data, "group_only_greetings", default=[]))
@@ -286,32 +287,287 @@ def _check_chunk_keyword(keyword: str, value: str) -> Optional[str]:
     return None
 
 
+CCV3_DATA_FIELDS = {
+    "name",
+    "description",
+    "tags",
+    "creator",
+    "character_version",
+    "mes_example",
+    "extensions",
+    "system_prompt",
+    "post_history_instructions",
+    "first_mes",
+    "alternate_greetings",
+    "personality",
+    "scenario",
+    "creator_notes",
+    "character_book",
+    "assets",
+    "nickname",
+    "creator_notes_multilingual",
+    "source",
+    "group_only_greetings",
+    "creation_date",
+    "modification_date",
+}
+
+CCV3_LOREBOOK_FIELDS = {
+    "name",
+    "description",
+    "scan_depth",
+    "token_budget",
+    "recursive_scanning",
+    "extensions",
+    "entries",
+}
+
+CCV3_LOREBOOK_ENTRY_FIELDS = {
+    "keys",
+    "content",
+    "extensions",
+    "enabled",
+    "insertion_order",
+    "case_sensitive",
+    "use_regex",
+    "constant",
+    "name",
+    "priority",
+    "id",
+    "comment",
+    "selective",
+    "secondary_keys",
+    "position",
+}
+
+
+def _normalize_lorebook_for_internal(character_book: Any) -> dict:
+    """Keep CCv3 extension data while exposing AI Tavern fields internally."""
+    if not isinstance(character_book, dict):
+        return {}
+
+    normalized_book = copy.deepcopy(character_book)
+    normalized_book.setdefault("extensions", {})
+    entries = normalized_book.get("entries", [])
+    if not isinstance(entries, list):
+        normalized_book["entries"] = []
+        return normalized_book
+
+    normalized_entries = []
+    for raw_entry in entries:
+        if not isinstance(raw_entry, dict):
+            continue
+        entry = copy.deepcopy(raw_entry)
+        extensions = entry.get("extensions") if isinstance(entry.get("extensions"), dict) else {}
+        entry["extensions"] = extensions
+        if "probability" not in entry and isinstance(extensions.get("probability"), (int, float)):
+            entry["probability"] = extensions["probability"]
+        normalized_entries.append(entry)
+    normalized_book["entries"] = normalized_entries
+    return normalized_book
+
+
+def _coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def _export_lorebook(character_book: Any) -> dict:
+    source = character_book if isinstance(character_book, dict) else {}
+    exported: dict = {"extensions": copy.deepcopy(source.get("extensions", {})), "entries": []}
+    if not isinstance(exported["extensions"], dict):
+        exported["extensions"] = {}
+
+    for field in ("name", "description"):
+        if field in source:
+            exported[field] = str(source[field] or "")
+    for field in ("scan_depth", "token_budget"):
+        if field in source:
+            exported[field] = _coerce_int(source[field])
+    if "recursive_scanning" in source:
+        exported["recursive_scanning"] = bool(source["recursive_scanning"])
+
+    entries = source.get("entries", [])
+    if not isinstance(entries, list):
+        entries = []
+
+    for raw_entry in entries:
+        if not isinstance(raw_entry, dict):
+            continue
+        entry_extensions = copy.deepcopy(raw_entry.get("extensions", {}))
+        if not isinstance(entry_extensions, dict):
+            entry_extensions = {}
+        if "probability" in raw_entry:
+            entry_extensions["probability"] = raw_entry.get("probability")
+
+        entry = {
+            "keys": _string_list(raw_entry.get("keys")),
+            "content": str(raw_entry.get("content") or ""),
+            "extensions": entry_extensions,
+            "enabled": bool(raw_entry.get("enabled", True)),
+            "insertion_order": _coerce_int(raw_entry.get("insertion_order", 0)),
+            "use_regex": bool(raw_entry.get("use_regex", False)),
+        }
+
+        for field in ("case_sensitive", "constant", "selective"):
+            if field in raw_entry:
+                entry[field] = bool(raw_entry[field])
+        for field in ("name", "comment"):
+            if field in raw_entry:
+                entry[field] = str(raw_entry[field] or "")
+        if "priority" in raw_entry:
+            entry["priority"] = _coerce_int(raw_entry["priority"])
+        if "secondary_keys" in raw_entry:
+            entry["secondary_keys"] = _string_list(raw_entry["secondary_keys"])
+        if raw_entry.get("position") in {"before_char", "after_char"}:
+            entry["position"] = raw_entry["position"]
+
+        entry_id = raw_entry.get("id")
+        if isinstance(entry_id, (str, int)) and not isinstance(entry_id, bool):
+            entry["id"] = entry_id
+
+        exported["entries"].append(entry)
+
+    return exported
+
+
+def validate_character_card_v3(card: Any) -> list[str]:
+    """Validate the strict subset emitted by AI Tavern before download."""
+    errors: list[str] = []
+    if not isinstance(card, dict):
+        return ["导出结果不是 JSON 对象"]
+    if card.get("spec") != "chara_card_v3":
+        errors.append("spec 必须为 chara_card_v3")
+    if card.get("spec_version") != "3.0":
+        errors.append("spec_version 必须为 3.0")
+
+    data = card.get("data")
+    if not isinstance(data, dict):
+        return errors + ["data 必须为对象"]
+
+    required_types = {
+        "name": str,
+        "description": str,
+        "tags": list,
+        "creator": str,
+        "character_version": str,
+        "mes_example": str,
+        "extensions": dict,
+        "system_prompt": str,
+        "post_history_instructions": str,
+        "first_mes": str,
+        "alternate_greetings": list,
+        "personality": str,
+        "scenario": str,
+        "creator_notes": str,
+        "group_only_greetings": list,
+    }
+    for field, expected_type in required_types.items():
+        if not isinstance(data.get(field), expected_type):
+            errors.append(f"data.{field} 类型不正确")
+
+    for forbidden in ("spec", "spec_version", "creatorcomment", "ai_tavern_runtime"):
+        if forbidden in data:
+            errors.append(f"data 不应包含 {forbidden}")
+
+    character_book = data.get("character_book")
+    if character_book is not None:
+        if not isinstance(character_book, dict):
+            errors.append("data.character_book 必须为对象")
+        else:
+            if not isinstance(character_book.get("extensions"), dict):
+                errors.append("data.character_book.extensions 必须为对象")
+            entries = character_book.get("entries")
+            if not isinstance(entries, list):
+                errors.append("data.character_book.entries 必须为数组")
+            else:
+                for index, entry in enumerate(entries):
+                    prefix = f"data.character_book.entries[{index}]"
+                    if not isinstance(entry, dict):
+                        errors.append(f"{prefix} 必须为对象")
+                        continue
+                    for field, expected_type in (
+                        ("keys", list),
+                        ("content", str),
+                        ("extensions", dict),
+                        ("enabled", bool),
+                        ("insertion_order", int),
+                        ("use_regex", bool),
+                    ):
+                        if not isinstance(entry.get(field), expected_type):
+                            errors.append(f"{prefix}.{field} 类型不正确")
+                    if entry.get("id", "__missing__") is None:
+                        errors.append(f"{prefix}.id 不得为 null")
+                    if "probability" in entry:
+                        errors.append(f"{prefix}.probability 应保存在 extensions 中")
+    return errors
+
+
 def export_character_v3(normalized: CharacterCardNormalized, raw_json: dict) -> dict:
-    """Export character in V3 format, preserving unknown fields."""
+    """Export a strict Character Card V3 JSON object without losing AI Tavern metadata."""
     base_data = raw_json if isinstance(raw_json, dict) else {}
+    raw_data = base_data.get("data") if isinstance(base_data.get("data"), dict) else base_data
 
-    # Build data section
-    data_section = normalized.to_dict()
+    extensions = copy.deepcopy(normalized.extensions) if isinstance(normalized.extensions, dict) else {}
+    if normalized.ai_tavern_runtime:
+        extensions["ai_tavern_runtime"] = copy.deepcopy(normalized.ai_tavern_runtime)
 
-    # Preserve extensions from raw if available
-    if "data" in base_data and isinstance(base_data["data"], dict):
-        # Merge unknown fields
-        for key, value in base_data["data"].items():
-            if key not in data_section:
-                data_section[key] = value
+    creator_notes = normalized.creator_notes or normalized.creatorcomment
+    if normalized.creatorcomment and normalized.creator_notes:
+        legacy = extensions.setdefault("ai_tavern_legacy", {})
+        if not isinstance(legacy, dict):
+            legacy = {}
+            extensions["ai_tavern_legacy"] = legacy
+        legacy["creatorcomment"] = normalized.creatorcomment
 
-    result = {
-        "spec": "chara_card_v3",
-        "spec_version": "3.0",
-        "data": data_section
+    data_section = {
+        "name": normalized.name,
+        "description": normalized.description,
+        "tags": list(normalized.tags or []),
+        "creator": normalized.creator,
+        "character_version": normalized.character_version,
+        "mes_example": normalized.mes_example,
+        "extensions": extensions,
+        "system_prompt": normalized.system_prompt,
+        "post_history_instructions": normalized.post_history_instructions,
+        "first_mes": normalized.first_mes,
+        "alternate_greetings": list(normalized.alternate_greetings or []),
+        "personality": normalized.personality,
+        "scenario": normalized.scenario,
+        "creator_notes": creator_notes,
+        "group_only_greetings": list(normalized.group_only_greetings or []),
     }
 
-    # Preserve top-level unknown fields
-    for key, value in base_data.items():
-        if key not in result and key != "data":
-            result[key] = value
+    for field in (
+        "assets",
+        "nickname",
+        "creator_notes_multilingual",
+        "source",
+        "creation_date",
+        "modification_date",
+    ):
+        if isinstance(raw_data, dict) and field in raw_data:
+            data_section[field] = copy.deepcopy(raw_data[field])
 
-    return result
+    character_book = _export_lorebook(normalized.character_book)
+    if character_book["entries"] or any(key not in {"entries", "extensions"} for key in character_book):
+        data_section["character_book"] = character_book
+    elif isinstance(normalized.character_book, dict) and normalized.character_book:
+        data_section["character_book"] = character_book
+
+    return {
+        "spec": "chara_card_v3",
+        "spec_version": "3.0",
+        "data": data_section,
+    }
 
 
 def replace_template_vars(text: str, char_name: str, user_name: str) -> str:

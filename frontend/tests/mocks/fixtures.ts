@@ -1,4 +1,4 @@
-import type { Character, ChatSession, Lorebook } from '@/types'
+import type { AppSettings, Character, ChatSession, Lorebook } from '@/types'
 
 export const charactersFixture: Character[] = [
   {
@@ -55,4 +55,24 @@ export const lorebookFixture: Lorebook = {
       extensions: {},
     },
   ],
+}
+
+
+export const appSettingsFixture: AppSettings = {
+  provider_name: 'OpenAI Compatible',
+  base_url: 'https://api.example.com/v1',
+  model: 'test-model',
+  temperature: 0.7,
+  top_p: 0.9,
+  max_tokens: 1024,
+  context_window: 8192,
+  username: '用户',
+  mock_llm: true,
+  auto_memory_extraction: false,
+  api_key_configured: false,
+  api_key_masked: '',
+  custom_headers: {},
+  settings_writable: true,
+  diagnostics_enabled: true,
+  selftest_enabled: true,
 }

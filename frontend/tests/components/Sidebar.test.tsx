@@ -32,6 +32,38 @@ describe('Sidebar', () => {
     expect(await screen.findByText('请先选择一个角色')).toBeInTheDocument()
   })
 
+  it('blocks a new session when the real model configuration is incomplete', async () => {
+    const user = userEvent.setup()
+    useAppStore.setState({
+      settings: {
+        provider_name: 'OpenAI Compatible',
+        base_url: 'https://api.example.com/v1',
+        model: 'test-model',
+        temperature: 0.7,
+        top_p: 0.9,
+        max_tokens: 1024,
+        context_window: 8192,
+        username: '用户',
+        mock_llm: false,
+        auto_memory_extraction: false,
+        api_key_configured: false,
+        api_key_masked: '',
+        custom_headers: {},
+        settings_writable: true,
+        diagnostics_enabled: true,
+        selftest_enabled: true,
+      },
+    })
+    renderWithRouter(<Sidebar />)
+
+    await user.click(await screen.findByRole('button', { name: /选择角色 林雅/ }))
+    await user.click(screen.getByTitle('新建对话'))
+
+    expect(await screen.findByText(/真实模型配置不完整：缺少API Key/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '打开设置' })).toBeInTheDocument()
+    expect(useAppStore.getState().currentSession).toBeNull()
+  })
+
   it('opens the built-in character creator', async () => {
     const user = userEvent.setup()
     renderWithRouter(<Sidebar />)
