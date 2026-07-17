@@ -8,10 +8,12 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "test:run": "vitest run",
+    "test:run": "npm run test:run:ui && npm run test:run:store",
     "test:typecheck": "tsc -p tsconfig.vitest.json --noEmit",
     "test:coverage": "vitest run --coverage",
-    "check": "npm run test:typecheck && npm run test:run && npm run build"
+    "check": "npm run test:typecheck && npm run test:run && npm run build",
+    "test:run:ui": "vitest run tests/components tests/api tests/lib",
+    "test:run:store": "vitest run tests/stores"
   },
   "dependencies": {
     "axios": "^1.7.7",

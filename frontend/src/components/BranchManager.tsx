@@ -5,7 +5,8 @@ import { useAppStore } from '@/stores/appStore'
 import type { SessionBranch } from '@/types'
 
 export default function BranchManager({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { currentSession, refreshCurrentSession } = useAppStore()
+  const currentSession = useAppStore((state) => state.currentSession)
+  const refreshCurrentSession = useAppStore((state) => state.refreshCurrentSession)
   const [branches, setBranches] = useState<SessionBranch[]>([])
   const [title, setTitle] = useState('当前剧情存档')
   const reload = async () => {

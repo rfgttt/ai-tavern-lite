@@ -5,7 +5,7 @@ import { useAppStore } from '@/stores/appStore'
 import { getCharacter, getSessions } from '@/api'
 
 function App() {
-  const { fetchSettings } = useAppStore()
+  const fetchSettings = useAppStore((state) => state.fetchSettings)
 
   useEffect(() => {
     void fetchSettings()

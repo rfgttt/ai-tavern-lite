@@ -28,35 +28,33 @@ import { useToast } from './ui/ToastProvider'
 export default function ChatView() {
   const navigate = useNavigate()
   const { showToast } = useToast()
-  const {
-    selectedCharacter,
-    currentSession,
-    messages,
-    loadingMessages,
-    runtimeLoading,
-    messageLoadError,
-    drafts,
-    scrollPositions,
-    runtime,
-    timeline,
-    activeLorebook,
-    immersiveError,
-    generatingMessageId,
-    sendMessage,
-    sendChoice,
-    stopGeneration,
-    regenerateLast,
-    editMessage,
-    deleteMessage,
-    rollbackToMessage,
-    toggleRuntimeDrawer,
-    clearImmersiveError,
-    refreshCurrentSession,
-    setDraft,
-    setScrollPosition,
-    fetchSettings,
-    settings,
-  } = useAppStore()
+  const selectedCharacter = useAppStore((state) => state.selectedCharacter)
+  const currentSession = useAppStore((state) => state.currentSession)
+  const messages = useAppStore((state) => state.messages)
+  const loadingMessages = useAppStore((state) => state.loadingMessages)
+  const runtimeLoading = useAppStore((state) => state.runtimeLoading)
+  const messageLoadError = useAppStore((state) => state.messageLoadError)
+  const drafts = useAppStore((state) => state.drafts)
+  const scrollPositions = useAppStore((state) => state.scrollPositions)
+  const runtime = useAppStore((state) => state.runtime)
+  const timeline = useAppStore((state) => state.timeline)
+  const activeLorebook = useAppStore((state) => state.activeLorebook)
+  const immersiveError = useAppStore((state) => state.immersiveError)
+  const generatingMessageId = useAppStore((state) => state.generatingMessageId)
+  const sendMessage = useAppStore((state) => state.sendMessage)
+  const sendChoice = useAppStore((state) => state.sendChoice)
+  const stopGeneration = useAppStore((state) => state.stopGeneration)
+  const regenerateLast = useAppStore((state) => state.regenerateLast)
+  const editMessage = useAppStore((state) => state.editMessage)
+  const deleteMessage = useAppStore((state) => state.deleteMessage)
+  const rollbackToMessage = useAppStore((state) => state.rollbackToMessage)
+  const toggleRuntimeDrawer = useAppStore((state) => state.toggleRuntimeDrawer)
+  const clearImmersiveError = useAppStore((state) => state.clearImmersiveError)
+  const refreshCurrentSession = useAppStore((state) => state.refreshCurrentSession)
+  const setDraft = useAppStore((state) => state.setDraft)
+  const setScrollPosition = useAppStore((state) => state.setScrollPosition)
+  const fetchSettings = useAppStore((state) => state.fetchSettings)
+  const settings = useAppStore((state) => state.settings)
 
   const [inputValue, setInputValue] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)

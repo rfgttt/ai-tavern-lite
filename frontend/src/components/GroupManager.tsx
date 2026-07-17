@@ -11,7 +11,7 @@ interface GroupManagerProps {
 }
 
 export default function GroupManager({ open, onClose, onStartGroup }: GroupManagerProps) {
-  const { characters } = useAppStore()
+  const characters = useAppStore((state) => state.characters)
   const [groups, setGroups] = useState<CharacterGroup[]>([])
   const [name, setName] = useState('')
   const [selected, setSelected] = useState<string[]>([])

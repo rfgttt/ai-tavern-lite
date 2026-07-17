@@ -57,23 +57,21 @@ const safeFilename = (value: string, fallback: string) => value.replace(/[\\/:*?
 export default function Sidebar() {
   const navigate = useNavigate()
   const { showToast } = useToast()
-  const {
-    characters,
-    selectedCharacter,
-    sessions,
-    currentSession,
-    sidebarOpen,
-    toggleSidebar,
-    fetchCharacters,
-    selectCharacter,
-    createSession,
-    selectSession,
-    renameSession,
-    deleteSession,
-    deleteCharacter,
-    fetchSettings,
-    settings,
-  } = useAppStore()
+  const characters = useAppStore((state) => state.characters)
+  const selectedCharacter = useAppStore((state) => state.selectedCharacter)
+  const sessions = useAppStore((state) => state.sessions)
+  const currentSession = useAppStore((state) => state.currentSession)
+  const sidebarOpen = useAppStore((state) => state.sidebarOpen)
+  const toggleSidebar = useAppStore((state) => state.toggleSidebar)
+  const fetchCharacters = useAppStore((state) => state.fetchCharacters)
+  const selectCharacter = useAppStore((state) => state.selectCharacter)
+  const createSession = useAppStore((state) => state.createSession)
+  const selectSession = useAppStore((state) => state.selectSession)
+  const renameSession = useAppStore((state) => state.renameSession)
+  const deleteSession = useAppStore((state) => state.deleteSession)
+  const deleteCharacter = useAppStore((state) => state.deleteCharacter)
+  const fetchSettings = useAppStore((state) => state.fetchSettings)
+  const settings = useAppStore((state) => state.settings)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [personaOpen, setPersonaOpen] = useState(false)

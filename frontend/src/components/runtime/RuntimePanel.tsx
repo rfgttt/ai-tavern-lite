@@ -17,19 +17,17 @@ import { changedFromInitial, hasContent } from './runtimePresentation'
 import type { CardCompatibilityReport } from '@/types'
 
 export default function RuntimePanel() {
-  const {
-    selectedCharacter,
-    currentSession,
-    runtime,
-    timeline,
-    activeLorebook,
-    runtimeLoading,
-    runtimeDrawerOpen,
-    generatingMessageId,
-    replaceRuntimeState,
-    rollbackToMessage,
-    toggleRuntimeDrawer,
-  } = useAppStore()
+  const selectedCharacter = useAppStore((state) => state.selectedCharacter)
+  const currentSession = useAppStore((state) => state.currentSession)
+  const runtime = useAppStore((state) => state.runtime)
+  const timeline = useAppStore((state) => state.timeline)
+  const activeLorebook = useAppStore((state) => state.activeLorebook)
+  const runtimeLoading = useAppStore((state) => state.runtimeLoading)
+  const runtimeDrawerOpen = useAppStore((state) => state.runtimeDrawerOpen)
+  const generatingMessageId = useAppStore((state) => state.generatingMessageId)
+  const replaceRuntimeState = useAppStore((state) => state.replaceRuntimeState)
+  const rollbackToMessage = useAppStore((state) => state.rollbackToMessage)
+  const toggleRuntimeDrawer = useAppStore((state) => state.toggleRuntimeDrawer)
   const [setupOpen, setSetupOpen] = useState(false)
   const [compatibility, setCompatibility] = useState<CardCompatibilityReport | null>(null)
 

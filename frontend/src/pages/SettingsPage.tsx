@@ -43,7 +43,9 @@ function FormField({ label, hint, children }: FormFieldProps) {
 }
 
 export default function SettingsPage({ embedded = false }: { embedded?: boolean }) {
-  const { settings, fetchSettings, updateSettings } = useAppStore()
+  const settings = useAppStore((state) => state.settings)
+  const fetchSettings = useAppStore((state) => state.fetchSettings)
+  const updateSettings = useAppStore((state) => state.updateSettings)
   const navigate = useNavigate()
 
   const [formData, setFormData] = useState({

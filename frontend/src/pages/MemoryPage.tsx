@@ -26,7 +26,8 @@ const categoryLabels: Record<string, string> = {
 
 export default function MemoryPage({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate()
-  const { selectedCharacter, currentSession } = useAppStore()
+  const selectedCharacter = useAppStore((state) => state.selectedCharacter)
+  const currentSession = useAppStore((state) => state.currentSession)
   const [memories, setMemories] = useState<Memory[]>([])
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
