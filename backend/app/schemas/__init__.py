@@ -1,8 +1,25 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 import json
 import re
+
+def _normalize_alternate_greetings(values: List[str]) -> List[str]:
+    if len(values) > 50:
+        raise ValueError("备用开场白最多 50 条")
+    cleaned: List[str] = []
+    seen: set[str] = set()
+    for index, value in enumerate(values):
+        text = value.strip()
+        if not text:
+            raise ValueError(f"备用开场白 {index + 1} 不能为空")
+        if len(text) > 200_000:
+            raise ValueError(f"备用开场白 {index + 1} 过长")
+        if text in seen:
+            raise ValueError("备用开场白不能重复")
+        seen.add(text)
+        cleaned.append(text)
+    return cleaned
 
 
 class CharacterBase(BaseModel):
@@ -11,6 +28,7 @@ class CharacterBase(BaseModel):
     personality: str = Field(default="", max_length=200_000)
     scenario: str = Field(default="", max_length=300_000)
     first_message: str = Field(default="", max_length=200_000)
+    alternate_greetings: List[str] = Field(default_factory=list, max_length=50)
 
     @field_validator("name")
     @classmethod
@@ -19,6 +37,11 @@ class CharacterBase(BaseModel):
         if not cleaned:
             raise ValueError("角色名称不能为空")
         return cleaned
+
+    @field_validator("alternate_greetings")
+    @classmethod
+    def validate_alternate_greetings(cls, values: List[str]) -> List[str]:
+        return _normalize_alternate_greetings(values)
 
 
 class CharacterCreate(CharacterBase):
@@ -33,7 +56,13 @@ class CharacterUpdate(BaseModel):
     personality: Optional[str] = Field(None, max_length=200_000)
     scenario: Optional[str] = Field(None, max_length=300_000)
     first_message: Optional[str] = Field(None, max_length=200_000)
+    alternate_greetings: Optional[List[str]] = Field(None, max_length=50)
     normalized_json: Optional[str] = Field(None, max_length=1_500_000)
+
+    @field_validator("alternate_greetings")
+    @classmethod
+    def validate_alternate_greetings(cls, values: Optional[List[str]]) -> Optional[List[str]]:
+        return None if values is None else _normalize_alternate_greetings(values)
 
 
 class CharacterResponse(CharacterBase):
@@ -71,10 +100,19 @@ class Lorebook(BaseModel):
     entries: List[LorebookEntry] = Field(default_factory=list)
 
 
+class CharacterGreetingOption(BaseModel):
+    key: str
+    kind: Literal["default", "alternate"]
+    label: str
+    content: str
+    source_index: Optional[int] = None
+
+
 class CharacterSessionOptionsResponse(BaseModel):
     character_id: str
     character_name: str
     greetings: List[str] = Field(default_factory=list)
+    greeting_options: List[CharacterGreetingOption] = Field(default_factory=list)
     runtime_profile: Dict[str, Any] = Field(default_factory=dict)
     initial_state: Dict[str, Any] = Field(default_factory=dict)
 

@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
+  Eye,
   Loader2,
   MessageSquarePlus,
   Sparkles,
@@ -60,7 +61,8 @@ export default function NewSessionWizard({
   const [title, setTitle] = useState('新对话')
   const [titleTouched, setTitleTouched] = useState(false)
   const [sessionOptions, setSessionOptions] = useState<CharacterSessionOptions | null>(null)
-  const [greetingChoice, setGreetingChoice] = useState('0')
+  const [greetingChoice, setGreetingChoice] = useState('default')
+  const [greetingPreviewExpanded, setGreetingPreviewExpanded] = useState(false)
   const [customizeInitialState, setCustomizeInitialState] = useState(false)
   const [initialStateText, setInitialStateText] = useState('{}')
   const [loadingLists, setLoadingLists] = useState(false)
@@ -76,6 +78,19 @@ export default function NewSessionWizard({
   }, [characters, mode, selectedGroup])
   const selectedCharacter = characters.find((character) => character.id === characterId)
   const defaultPersona = personas.find((persona) => persona.is_default)
+  const greetingOptions = useMemo(() => {
+    if (!sessionOptions) return []
+    if (sessionOptions.greeting_options?.length) return sessionOptions.greeting_options
+    return sessionOptions.greetings.map((content, index) => ({
+      key: `legacy-${index}`,
+      kind: index === 0 ? 'default' as const : 'alternate' as const,
+      label: index === 0 ? '默认开场白' : `备用开场白 ${index}`,
+      content,
+      source_index: index === 0 ? null : index - 1,
+    }))
+  }, [sessionOptions])
+  const selectedGreeting = greetingOptions.find((option) => option.key === greetingChoice)
+  const selectedGreetingIsLong = Boolean(selectedGreeting && (selectedGreeting.content.length > 280 || selectedGreeting.content.split('\n').length > 8))
 
   useEffect(() => {
     if (!open) return
@@ -86,7 +101,8 @@ export default function NewSessionWizard({
     setTitleTouched(false)
     setCustomizeInitialState(false)
     setSessionOptions(null)
-    setGreetingChoice('0')
+    setGreetingChoice('default')
+    setGreetingPreviewExpanded(false)
     setLoadingLists(true)
 
     Promise.all([getPersonas(), getGroups()])
@@ -131,7 +147,10 @@ export default function NewSessionWizard({
       .then((response) => {
         if (!active) return
         setSessionOptions(response.data)
-        setGreetingChoice(response.data.greetings.length ? '0' : 'none')
+        const firstGreetingKey = response.data.greeting_options?.[0]?.key
+          || (response.data.greetings.length ? 'legacy-0' : 'none')
+        setGreetingChoice(firstGreetingKey)
+        setGreetingPreviewExpanded(false)
         setInitialStateText(JSON.stringify(response.data.initial_state, null, 2))
         setCustomizeInitialState(false)
       })
@@ -220,9 +239,7 @@ export default function NewSessionWizard({
       use_default_persona: personaChoice === 'default',
       persona_id: personaChoice !== 'default' && personaChoice !== 'none' ? personaChoice : undefined,
       skip_opening_message: greetingChoice === 'none',
-      opening_message: greetingChoice === 'none'
-        ? undefined
-        : sessionOptions.greetings[Number(greetingChoice)],
+      opening_message: greetingChoice === 'none' ? undefined : selectedGreeting?.content,
       initial_state: initialState,
     }
 
@@ -339,18 +356,40 @@ export default function NewSessionWizard({
                 <div className="session-wizard__field-heading"><span>开场白</span><small>选择角色进入会话时显示的第一条消息</small></div>
                 {loadingOptions ? <div className="manager-empty"><Loader2 className="animate-spin mx-auto mb-2" size={20}/>正在生成会话预览…</div> : null}
                 {!loadingOptions && sessionOptions ? (
-                  <div className="session-wizard__greetings">
-                    {sessionOptions.greetings.map((greeting, index) => (
-                      <label key={`${index}-${greeting.slice(0, 20)}`} className={greetingChoice === String(index) ? 'is-selected' : ''}>
-                        <input type="radio" name="opening-message" value={index} checked={greetingChoice === String(index)} onChange={(event) => setGreetingChoice(event.target.value)}/>
-                        <span><strong>{index === 0 ? '默认开场白' : `备用开场白 ${index}`}</strong><p>{greeting}</p></span>
+                  <>
+                    <div className="session-wizard__greetings">
+                      {greetingOptions.map((option) => (
+                        <label key={option.key} className={greetingChoice === option.key ? 'is-selected' : ''}>
+                          <input
+                            type="radio"
+                            name="opening-message"
+                            value={option.key}
+                            checked={greetingChoice === option.key}
+                            onChange={(event) => { setGreetingChoice(event.target.value); setGreetingPreviewExpanded(false) }}
+                          />
+                          <span>
+                            <span className={`session-wizard__greeting-source is-${option.kind}`}>{option.kind === 'default' ? '角色默认' : '角色备用'}</span>
+                            <strong>{option.label}</strong>
+                            <p>{option.content}</p>
+                          </span>
+                        </label>
+                      ))}
+                      <label className={greetingChoice === 'none' ? 'is-selected' : ''}>
+                        <input type="radio" name="opening-message" value="none" checked={greetingChoice === 'none'} onChange={(event) => { setGreetingChoice(event.target.value); setGreetingPreviewExpanded(false) }}/>
+                        <span><span className="session-wizard__greeting-source is-empty">无开场白</span><strong>空白开始</strong><p>不插入角色开场白，直接进入空会话。</p></span>
                       </label>
-                    ))}
-                    <label className={greetingChoice === 'none' ? 'is-selected' : ''}>
-                      <input type="radio" name="opening-message" value="none" checked={greetingChoice === 'none'} onChange={(event) => setGreetingChoice(event.target.value)}/>
-                      <span><strong>空白开始</strong><p>不插入角色开场白，直接进入空会话。</p></span>
-                    </label>
-                  </div>
+                    </div>
+
+                    {selectedGreeting ? (
+                      <section className="session-wizard__greeting-preview" aria-live="polite">
+                        <div>
+                          <span><Eye size={14}/><strong>已选预览 · {selectedGreeting.label}</strong></span>
+                          {selectedGreetingIsLong ? <button type="button" onClick={() => setGreetingPreviewExpanded((value) => !value)}>{greetingPreviewExpanded ? '收起' : '展开全文'}</button> : null}
+                        </div>
+                        <p className={greetingPreviewExpanded ? 'is-expanded' : ''}>{selectedGreeting.content}</p>
+                      </section>
+                    ) : null}
+                  </>
                 ) : null}
               </div>
 

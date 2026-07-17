@@ -8,6 +8,7 @@ export const charactersFixture: Character[] = [
     personality: '克制、友善',
     scenario: '深夜的酒馆',
     first_message: '晚上好。',
+    alternate_greetings: ['你终于来了。', '雨还没有停。'],
     avatar_path: '',
     created_at: '2026-07-16T00:00:00Z',
     updated_at: '2026-07-16T00:00:00Z',
@@ -19,6 +20,7 @@ export const charactersFixture: Character[] = [
     personality: 'Curious',
     scenario: 'A roadside inn',
     first_message: 'Good evening.',
+    alternate_greetings: [],
     avatar_path: '',
     created_at: '2026-07-16T00:00:00Z',
     updated_at: '2026-07-16T00:00:00Z',
@@ -110,7 +112,12 @@ export const groupsFixture = [
 export const characterSessionOptionsFixture = {
   character_id: 'character-linya',
   character_name: '林雅',
-  greetings: ['晚上好。', '你终于来了。'],
+  greetings: ['晚上好。', '你终于来了。', '雨还没有停。'],
+  greeting_options: [
+    { key: 'default', kind: 'default', label: '默认开场白', content: '晚上好。', source_index: null },
+    { key: 'alternate-0', kind: 'alternate', label: '备用开场白 1', content: '你终于来了。', source_index: 0 },
+    { key: 'alternate-1', kind: 'alternate', label: '备用开场白 2', content: '雨还没有停。', source_index: 1 },
+  ],
   runtime_profile: { mode: 'relationship' },
   initial_state: {
     runtime_version: 2,

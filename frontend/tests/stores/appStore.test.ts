@@ -69,6 +69,7 @@ describe('appStore character and session actions', () => {
       personality: '坚定',
       scenario: '雨夜',
       first_message: '晚上好。',
+      alternate_greetings: [],
     })
 
     expect(created.id).toBe('character-created')
@@ -84,6 +85,7 @@ describe('appStore character and session actions', () => {
       personality: '更坚定',
       scenario: '清晨酒馆',
       first_message: '早上好。',
+      alternate_greetings: [],
     })
 
     expect(updated.name).toBe('林雅（编辑后）')

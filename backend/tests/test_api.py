@@ -193,6 +193,80 @@ class TestCharacterAPI:
         response = client.post("/api/characters", json={"name": "   "})
         assert response.status_code == 422
 
+    def test_editor_persists_alternate_greetings_and_exposes_sources(self, test_db):
+        client = self._get_client(test_db)
+        response = client.post(
+            "/api/characters",
+            json={
+                "name": "开场白测试角色",
+                "first_message": "{{char}} 向 {{user}} 点头。",
+                "alternate_greetings": ["备用场景一", "备用场景二"],
+            },
+        )
+        assert response.status_code == 201
+        character = response.json()
+        assert character["alternate_greetings"] == ["备用场景一", "备用场景二"]
+
+        options_response = client.get(f"/api/characters/{character['id']}/session-options")
+        assert options_response.status_code == 200
+        options = options_response.json()
+        assert [item["key"] for item in options["greeting_options"]] == [
+            "default", "alternate-0", "alternate-1"
+        ]
+        assert options["greeting_options"][0]["label"] == "默认开场白"
+        assert options["greeting_options"][1]["label"] == "备用开场白 1"
+        assert options["greetings"][0] == "开场白测试角色 向 用户 点头。"
+
+    def test_editor_can_reorder_and_remove_alternate_greetings(self, test_db):
+        client = self._get_client(test_db)
+        created = client.post(
+            "/api/characters",
+            json={
+                "name": "排序测试角色",
+                "first_message": "默认",
+                "alternate_greetings": ["第一条", "第二条", "第三条"],
+            },
+        ).json()
+
+        response = client.put(
+            f"/api/characters/{created['id']}",
+            json={
+                "name": "排序测试角色",
+                "description": "",
+                "personality": "",
+                "scenario": "",
+                "first_message": "默认",
+                "alternate_greetings": ["第三条", "第一条"],
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["alternate_greetings"] == ["第三条", "第一条"]
+
+        from app.db.models import Character
+        stored = test_db.query(Character).filter(Character.id == created["id"]).one()
+        assert json.loads(stored.normalized_json)["alternate_greetings"] == ["第三条", "第一条"]
+
+    def test_editor_rejects_blank_or_duplicate_opening_messages(self, test_db):
+        client = self._get_client(test_db)
+        blank = client.post(
+            "/api/characters",
+            json={"name": "空白测试", "alternate_greetings": ["   "]},
+        )
+        assert blank.status_code == 422
+
+        duplicate_alternates = client.post(
+            "/api/characters",
+            json={"name": "重复测试", "alternate_greetings": ["相同", "相同"]},
+        )
+        assert duplicate_alternates.status_code == 422
+
+        duplicate_default = client.post(
+            "/api/characters",
+            json={"name": "默认重复", "first_message": "相同", "alternate_greetings": ["相同"]},
+        )
+        assert duplicate_default.status_code == 400
+        assert "开场白不能重复" in duplicate_default.json()["detail"]
+
     def test_import_json_character(self, test_db, sample_v2_character_json):
         """Test importing a JSON character card via API."""
         client = self._get_client(test_db)

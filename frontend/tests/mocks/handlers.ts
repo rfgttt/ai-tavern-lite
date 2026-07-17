@@ -11,6 +11,9 @@ export const handlers = [
       character_id: character.id,
       character_name: character.name,
       greetings: character.id === 'character-linya' ? characterSessionOptionsFixture.greetings : [character.first_message],
+      greeting_options: character.id === 'character-linya'
+        ? characterSessionOptionsFixture.greeting_options
+        : [{ key: 'default', kind: 'default', label: '默认开场白', content: character.first_message, source_index: null }],
       initial_state: {
         ...characterSessionOptionsFixture.initial_state,
         scene: { location: character.scenario },
@@ -21,21 +24,22 @@ export const handlers = [
   http.get('*/api/personas', () => HttpResponse.json(personasFixture)),
   http.get('*/api/groups', () => HttpResponse.json(groupsFixture)),
   http.post('*/api/characters', async ({ request }) => {
-    const body = (await request.json()) as Record<string, string>
+    const body = (await request.json()) as Record<string, unknown>
     return HttpResponse.json({
       id: 'character-created',
-      name: body.name,
-      description: body.description || '',
-      personality: body.personality || '',
-      scenario: body.scenario || '',
-      first_message: body.first_message || '',
+      name: String(body.name || ''),
+      description: String(body.description || ''),
+      personality: String(body.personality || ''),
+      scenario: String(body.scenario || ''),
+      first_message: String(body.first_message || ''),
+      alternate_greetings: Array.isArray(body.alternate_greetings) ? body.alternate_greetings : [],
       avatar_path: '',
       created_at: '2026-07-16T00:00:00Z',
       updated_at: '2026-07-16T00:00:00Z',
     }, { status: 201 })
   }),
   http.put('*/api/characters/:characterId', async ({ params, request }) => {
-    const body = (await request.json()) as Record<string, string>
+    const body = (await request.json()) as Record<string, unknown>
     const existing = charactersFixture.find((character) => character.id === params.characterId) || charactersFixture[0]
     return HttpResponse.json({ ...existing, ...body, id: String(params.characterId) })
   }),

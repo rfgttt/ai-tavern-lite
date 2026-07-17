@@ -94,4 +94,27 @@ describe('NewSessionWizard', () => {
     expect(await screen.findByText('初始状态不是有效的 JSON')).toBeInTheDocument()
     expect(onCreate).not.toHaveBeenCalled()
   })
+  it('shows greeting sources and a live preview for the selected opening', async () => {
+    const user = userEvent.setup()
+    renderWithRouter(
+      <NewSessionWizard
+        open
+        characters={charactersFixture}
+        initialCharacterId="character-linya"
+        onClose={vi.fn()}
+        onCreate={vi.fn().mockResolvedValue(undefined)}
+      />,
+    )
+
+    await screen.findByRole('dialog', { name: '新建会话' })
+    await user.click(screen.getByRole('button', { name: /下一步/ }))
+    await user.click(screen.getByRole('button', { name: /下一步/ }))
+
+    expect(await screen.findByText('角色默认')).toBeInTheDocument()
+    expect(screen.getAllByText('角色备用')).toHaveLength(2)
+    await user.click(screen.getByText('备用开场白 2'))
+    expect(screen.getByText('已选预览 · 备用开场白 2')).toBeInTheDocument()
+    expect(screen.getAllByText('雨还没有停。').length).toBeGreaterThanOrEqual(1)
+  })
+
 })

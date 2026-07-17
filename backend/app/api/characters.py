@@ -28,6 +28,18 @@ router = APIRouter(prefix="/characters", tags=["characters"])
 MAX_UPLOAD_SIZE = settings.max_upload_size_mb * 1024 * 1024
 
 
+def _validate_opening_messages(first_message: str, alternate_greetings: list[str]) -> None:
+    default_text = str(first_message or "").strip()
+    seen = {default_text} if default_text else set()
+    for index, greeting in enumerate(alternate_greetings):
+        text = str(greeting or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail=f"备用开场白 {index + 1} 不能为空")
+        if text in seen:
+            raise HTTPException(status_code=400, detail="开场白不能重复")
+        seen.add(text)
+
+
 async def _read_upload_limited(file: UploadFile, max_size: int = MAX_UPLOAD_SIZE) -> bytes:
     """Read at most max_size + 1 bytes so oversized uploads are rejected early."""
     chunks: list[bytes] = []
@@ -69,12 +81,14 @@ def create_character(
     if not isinstance(normalized, dict) or not isinstance(raw_data, dict):
         raise HTTPException(status_code=400, detail="角色数据必须是 JSON 对象")
 
+    _validate_opening_messages(payload.first_message, payload.alternate_greetings)
     normalized.update({
         "name": payload.name.strip(),
         "description": payload.description,
         "personality": payload.personality,
         "scenario": payload.scenario,
-        "first_mes": payload.first_message,
+        "first_mes": payload.first_message.strip(),
+        "alternate_greetings": payload.alternate_greetings,
     })
 
     character = Character(
@@ -82,7 +96,7 @@ def create_character(
         description=payload.description,
         personality=payload.personality,
         scenario=payload.scenario,
-        first_message=payload.first_message,
+        first_message=payload.first_message.strip(),
         normalized_json=json.dumps(normalized, ensure_ascii=False),
         raw_json=json.dumps(raw_data, ensure_ascii=False),
         avatar_path=payload.avatar_path,
@@ -194,25 +208,37 @@ def get_character_session_options(character_id: str, db: Session = Depends(get_d
 
     settings_data = SettingsService.get_all_settings(db)
     username = settings_data.get("username", "用户")
-    candidates = [character.first_message]
+    source_candidates: list[tuple[str, str, str, str, int | None]] = [
+        ("default", "default", "默认开场白", character.first_message, None),
+    ]
     alternate = normalized.get("alternate_greetings", [])
     if isinstance(alternate, list):
-        candidates.extend(item for item in alternate if isinstance(item, str))
+        for index, item in enumerate(alternate):
+            if isinstance(item, str):
+                source_candidates.append((f"alternate-{index}", "alternate", f"备用开场白 {index + 1}", item, index))
 
-    greetings: list[str] = []
+    greeting_options: list[dict] = []
     seen: set[str] = set()
-    for item in candidates:
+    for key, kind, label, item, source_index in source_candidates:
         rendered = replace_template_vars(str(item or "").strip(), character.name, username)
         if rendered and rendered not in seen:
-            greetings.append(rendered)
+            greeting_options.append({
+                "key": key,
+                "kind": kind,
+                "label": label,
+                "content": rendered,
+                "source_index": source_index,
+            })
             seen.add(rendered)
 
+    greetings = [option["content"] for option in greeting_options]
     profile = character_profile(character)
     initial_state = build_initial_state(profile, normalized, username=username)
     return {
         "character_id": character.id,
         "character_name": character.name,
         "greetings": greetings,
+        "greeting_options": greeting_options,
         "runtime_profile": profile,
         "initial_state": initial_state,
     }
@@ -240,27 +266,40 @@ def update_character(
 
     update_data = update.model_dump(exclude_unset=True)
 
-    # Update basic fields
     for field in ["name", "description", "personality", "scenario", "first_message"]:
         if field in update_data:
-            setattr(character, field, update_data[field])
+            value = update_data[field]
+            if field == "first_message" and isinstance(value, str):
+                value = value.strip()
+            setattr(character, field, value)
 
-    # Update normalized_json if provided
     if "normalized_json" in update_data and update_data["normalized_json"]:
-        character.normalized_json = update_data["normalized_json"]
+        try:
+            norm = json.loads(update_data["normalized_json"])
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=f"角色数据不是有效 JSON: {exc}")
     else:
-        # Update normalized_json with new basic fields
         try:
             norm = json.loads(character.normalized_json) if character.normalized_json else {}
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             norm = {}
+    if not isinstance(norm, dict):
+        raise HTTPException(status_code=400, detail="角色数据必须是 JSON 对象")
 
-        norm["name"] = character.name
-        norm["description"] = character.description
-        norm["personality"] = character.personality
-        norm["scenario"] = character.scenario
-        norm["first_mes"] = character.first_message
-        character.normalized_json = json.dumps(norm, ensure_ascii=False)
+    alternate_greetings = update_data.get("alternate_greetings")
+    if alternate_greetings is None:
+        existing = norm.get("alternate_greetings", [])
+        alternate_greetings = existing if isinstance(existing, list) else []
+    if "alternate_greetings" in update_data or "first_message" in update_data:
+        _validate_opening_messages(character.first_message, alternate_greetings)
+
+    norm["name"] = character.name
+    norm["description"] = character.description
+    norm["personality"] = character.personality
+    norm["scenario"] = character.scenario
+    norm["first_mes"] = character.first_message
+    norm["alternate_greetings"] = alternate_greetings
+    character.normalized_json = json.dumps(norm, ensure_ascii=False)
 
     db.commit()
     db.refresh(character)

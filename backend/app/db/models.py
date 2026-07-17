@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Bool
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from ..db.session import Base
+import json
 import uuid
 
 
@@ -23,6 +24,17 @@ class Character(Base):
     avatar_path = Column(String, default="")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    @property
+    def alternate_greetings(self):
+        try:
+            normalized = json.loads(self.normalized_json) if self.normalized_json else {}
+        except (json.JSONDecodeError, TypeError):
+            normalized = {}
+        values = normalized.get("alternate_greetings", []) if isinstance(normalized, dict) else []
+        if not isinstance(values, list):
+            return []
+        return [item for item in values if isinstance(item, str)]
 
     sessions = relationship("ChatSession", back_populates="character", cascade="all, delete-orphan")
     memories = relationship("Memory", back_populates="character", cascade="all, delete-orphan")

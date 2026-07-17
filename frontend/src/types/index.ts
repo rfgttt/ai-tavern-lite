@@ -5,6 +5,7 @@ export interface Character {
   personality: string
   scenario: string
   first_message: string
+  alternate_greetings: string[]
   avatar_path: string
   created_at: string
   updated_at: string
@@ -16,6 +17,7 @@ export interface CharacterDraft {
   personality: string
   scenario: string
   first_message: string
+  alternate_greetings: string[]
 }
 
 export interface ChatSession {
@@ -28,10 +30,19 @@ export interface ChatSession {
   updated_at: string
 }
 
+export interface CharacterGreetingOption {
+  key: string
+  kind: 'default' | 'alternate'
+  label: string
+  content: string
+  source_index?: number | null
+}
+
 export interface CharacterSessionOptions {
   character_id: string
   character_name: string
   greetings: string[]
+  greeting_options: CharacterGreetingOption[]
   runtime_profile: Record<string, unknown>
   initial_state: RuntimeState
 }
