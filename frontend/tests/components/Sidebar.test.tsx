@@ -23,13 +23,15 @@ describe('Sidebar', () => {
     })
   })
 
-  it('explains that a character is required before starting a chat', async () => {
+  it('opens the new-session wizard even when no character was preselected', async () => {
     const user = userEvent.setup()
     renderWithRouter(<Sidebar />)
 
+    await screen.findByRole('button', { name: /选择角色 林雅/ })
     await user.click(screen.getByTitle('新建对话'))
 
-    expect(await screen.findByText('请先选择一个角色')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '新建会话' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /单角色对话/ })).toHaveClass('is-selected')
   })
 
   it('blocks a new session when the real model configuration is incomplete', async () => {
@@ -56,8 +58,11 @@ describe('Sidebar', () => {
     })
     renderWithRouter(<Sidebar />)
 
-    await user.click(await screen.findByRole('button', { name: /选择角色 林雅/ }))
+    await screen.findByRole('button', { name: /选择角色 林雅/ })
     await user.click(screen.getByTitle('新建对话'))
+    await user.click(screen.getByRole('button', { name: /下一步/ }))
+    await user.click(screen.getByRole('button', { name: /下一步/ }))
+    await user.click(await screen.findByRole('button', { name: /创建会话/ }))
 
     expect(await screen.findByText(/真实模型配置不完整：缺少API Key/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '打开设置' })).toBeInTheDocument()

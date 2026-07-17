@@ -115,3 +115,79 @@ def test_session_can_bind_default_persona_and_group(db_with_character):
     payload = response.json()
     assert payload['persona_id'] == persona['id']
     assert payload['group_id'] == group['id']
+
+
+def test_character_session_options_include_greetings_and_initial_state(db_with_character):
+    db, character = db_with_character
+    client = _client(db)
+
+    response = client.get(f'/api/characters/{character.id}/session-options')
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['character_id'] == character.id
+    assert payload['greetings'][0].startswith('*抬起头')
+    assert '你好，又见面了。' in payload['greetings']
+    assert payload['initial_state']['scene']['location'] == '图书馆场景'
+    assert payload['initial_state']['character']['name'] == character.name
+    assert isinstance(payload['runtime_profile'], dict)
+
+
+def test_session_wizard_options_control_persona_greeting_group_and_state(db_with_character):
+    db, character = db_with_character
+    client = _client(db)
+    client.post('/api/personas', json={
+        'name': '默认玩家', 'description': '', 'pronouns': '', 'metadata': {}, 'is_default': True,
+    })
+    group = client.post('/api/groups', json={
+        'name': '调查小队', 'description': '', 'character_ids': [character.id], 'metadata': {},
+    }).json()
+    initial_state = {
+        'scene': {'location': '钟楼'},
+        'character': {'name': character.name},
+        'relationship': {'trust': 12},
+        'custom': {'chapter': 2},
+    }
+
+    response = client.post('/api/sessions', json={
+        'character_id': character.id,
+        'title': '  钟楼序章  ',
+        'group_id': group['id'],
+        'use_default_persona': False,
+        'opening_message': '你好，又见面了。',
+        'initial_state': initial_state,
+    })
+
+    assert response.status_code == 200
+    session = response.json()
+    assert session['title'] == '钟楼序章'
+    assert session['persona_id'] is None
+    assert session['group_id'] == group['id']
+
+    messages = client.get(f'/api/sessions/{session["id"]}/messages').json()
+    assert [message['content'] for message in messages] == ['你好，又见面了。']
+    runtime = client.get(f'/api/sessions/{session["id"]}/runtime').json()
+    assert runtime['initial_state'] == initial_state
+    assert runtime['state'] == initial_state
+
+
+def test_session_rejects_primary_character_outside_selected_group(test_db):
+    from app.db.models import Character
+
+    first = Character(name='甲', description='', personality='', scenario='', first_message='你好')
+    second = Character(name='乙', description='', personality='', scenario='', first_message='你好')
+    test_db.add_all([first, second])
+    test_db.commit()
+    client = _client(test_db)
+    group = client.post('/api/groups', json={
+        'name': '仅甲', 'description': '', 'character_ids': [first.id], 'metadata': {},
+    }).json()
+
+    response = client.post('/api/sessions', json={
+        'character_id': second.id,
+        'title': '错误群组',
+        'group_id': group['id'],
+    })
+
+    assert response.status_code == 400
+    assert response.json()['detail'] == '主角色不属于所选群组'

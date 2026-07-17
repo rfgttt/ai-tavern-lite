@@ -24,13 +24,14 @@ import {
 } from 'lucide-react'
 import { exportCharacter as exportCharacterApi, exportSession as exportSessionApi } from '@/api'
 import { useAppStore } from '@/stores/appStore'
-import type { Character } from '@/types'
+import type { Character, CharacterGroup, SessionCreateOptions } from '@/types'
 import { getErrorMessage } from '@/lib/errors'
 import { getModelConfigurationIssue } from '@/lib/modelConfig'
 import PersonaManager from './PersonaManager'
 import GroupManager from './GroupManager'
 import BranchManager from './BranchManager'
 import CharacterManager from './CharacterManager'
+import NewSessionWizard from './NewSessionWizard'
 import ConfirmDialog from './ui/ConfirmDialog'
 import { useToast } from './ui/ToastProvider'
 
@@ -83,6 +84,7 @@ export default function Sidebar() {
   const [characterEditor, setCharacterEditor] = useState<CharacterEditorState>(null)
   const [pendingDeleteCharacter, setPendingDeleteCharacter] = useState<Character | null>(null)
   const [deletingCharacter, setDeletingCharacter] = useState(false)
+  const [newSessionWizard, setNewSessionWizard] = useState<{ groupId?: string } | null>(null)
 
   useEffect(() => {
     void fetchCharacters().catch((error) => showToast(getErrorMessage(error, '角色列表加载失败'), 'error'))
@@ -141,21 +143,33 @@ export default function Sidebar() {
     return false
   }
 
-  const handleNewChat = async () => {
-    if (!selectedCharacter) {
-      showToast('请先选择一个角色', 'info')
+  const handleNewChat = () => {
+    if (!characters.length) {
+      showToast('请先创建或导入至少一个角色', 'info')
       return
     }
-    if (!(await ensureModelConfiguration())) return
+    setNewSessionWizard({})
+  }
 
-    try {
-      const session = await createSession(selectedCharacter.id)
-      await selectSession(session)
-      navigate('/chat')
-      closeMobileSidebar()
-    } catch (error) {
-      showToast(getErrorMessage(error, '新建会话失败'), 'error')
+  const handleStartGroup = (group: CharacterGroup) => {
+    setNewSessionWizard({ groupId: group.id })
+  }
+
+  const handleCreateSession = async (characterId: string, options: SessionCreateOptions) => {
+    if (!(await ensureModelConfiguration())) {
+      throw new Error('请先完成模型配置')
     }
+
+    const character = characters.find((item) => item.id === characterId)
+    if (!character) throw new Error('所选角色不存在')
+
+    selectCharacter(character)
+    const session = await createSession(characterId, options)
+    await selectSession(session)
+    setNewSessionWizard(null)
+    navigate('/chat')
+    closeMobileSidebar()
+    showToast(`已创建会话“${session.title}”`, 'success')
   }
 
   const handleExportSession = async (session: typeof sessions[number]) => {
@@ -306,7 +320,7 @@ export default function Sidebar() {
           <div className="flex-1 px-3 py-3 overflow-hidden flex flex-col">
             <div className="flex items-center justify-between mb-2.5 px-1">
               <span className="section-label mb-0">会话记录</span>
-              <button type="button" onClick={() => void handleNewChat()} className="btn-icon p-1" title="新建对话"><Plus size={14} /></button>
+              <button type="button" onClick={handleNewChat} className="btn-icon p-1" title="新建对话"><Plus size={14} /></button>
             </div>
             <div className="flex-1 overflow-y-auto space-y-0.5 scrollbar-thin pr-0.5">
               {!selectedCharacter ? <p className="text-xs text-tavern-text-muted text-center py-4">请先选择角色</p> : null}
@@ -342,8 +356,16 @@ export default function Sidebar() {
 
       {sidebarOpen ? <div className="lg:hidden fixed inset-0 bg-black/60 z-30 backdrop-blur-sm animate-fade-in" onClick={toggleSidebar} /> : null}
       <PersonaManager open={personaOpen} onClose={() => setPersonaOpen(false)}/>
-      <GroupManager open={groupOpen} onClose={() => setGroupOpen(false)}/>
+      <GroupManager open={groupOpen} onClose={() => setGroupOpen(false)} onStartGroup={handleStartGroup}/>
       <BranchManager open={branchOpen} onClose={() => setBranchOpen(false)}/>
+      <NewSessionWizard
+        open={Boolean(newSessionWizard)}
+        characters={characters}
+        initialCharacterId={selectedCharacter?.id}
+        initialGroupId={newSessionWizard?.groupId}
+        onClose={() => setNewSessionWizard(null)}
+        onCreate={handleCreateSession}
+      />
       <CharacterManager
         open={Boolean(characterEditor)}
         mode={characterEditor?.mode || 'create'}

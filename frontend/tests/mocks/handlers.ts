@@ -1,9 +1,25 @@
 import { http, HttpResponse } from 'msw'
-import { appSettingsFixture, charactersFixture, lorebookFixture, sessionsFixture } from './fixtures'
+import { appSettingsFixture, characterSessionOptionsFixture, charactersFixture, groupsFixture, lorebookFixture, personasFixture, sessionsFixture } from './fixtures'
 
 export const handlers = [
   http.get('*/api/settings', () => HttpResponse.json(appSettingsFixture)),
   http.get('*/api/characters', () => HttpResponse.json(charactersFixture)),
+  http.get('*/api/characters/:characterId/session-options', ({ params }) => {
+    const character = charactersFixture.find((item) => item.id === params.characterId) || charactersFixture[0]
+    return HttpResponse.json({
+      ...characterSessionOptionsFixture,
+      character_id: character.id,
+      character_name: character.name,
+      greetings: character.id === 'character-linya' ? characterSessionOptionsFixture.greetings : [character.first_message],
+      initial_state: {
+        ...characterSessionOptionsFixture.initial_state,
+        scene: { location: character.scenario },
+        character: { name: character.name },
+      },
+    })
+  }),
+  http.get('*/api/personas', () => HttpResponse.json(personasFixture)),
+  http.get('*/api/groups', () => HttpResponse.json(groupsFixture)),
   http.post('*/api/characters', async ({ request }) => {
     const body = (await request.json()) as Record<string, string>
     return HttpResponse.json({
@@ -37,7 +53,7 @@ export const handlers = [
     return HttpResponse.json(characterId ? sessionsFixture.filter((session) => session.character_id === characterId) : sessionsFixture)
   }),
   http.post('*/api/sessions', async ({ request }) => {
-    const body = (await request.json()) as { character_id: string; title?: string; persona_id?: string; group_id?: string }
+    const body = (await request.json()) as { character_id: string; title?: string; persona_id?: string; group_id?: string; use_default_persona?: boolean }
     return HttpResponse.json({
       id: 'session-created',
       character_id: body.character_id,

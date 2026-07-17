@@ -11,13 +11,17 @@ from ..db.session import get_db
 from ..db.models import Character, ChatSession, Message, Memory
 from ..schemas import (
     CharacterResponse, CharacterUpdate, CharacterCreate,
-    Lorebook, LorebookEntry
+    CharacterSessionOptionsResponse, Lorebook, LorebookEntry
 )
 from ..services.character_parser.parser import (
-    parse_json_character, parse_png_character, export_character_v3, validate_character_card_v3
+    parse_json_character, parse_png_character, export_character_v3,
+    replace_template_vars, validate_character_card_v3,
 )
 from ..core.config import settings
 from ..core.logging import logger
+from ..services.runtime.session_service import character_profile
+from ..services.runtime.state_engine import build_initial_state
+from ..services.settings_service import SettingsService
 
 router = APIRouter(prefix="/characters", tags=["characters"])
 
@@ -172,6 +176,46 @@ def get_character_compatibility(character_id: str, db: Session = Depends(get_db)
     from ..services.cards.compatibility import build_compatibility_report
     report = build_compatibility_report(normalized)
     return {"character_id": character.id, "character_name": character.name, **report}
+
+
+@router.get("/{character_id}/session-options", response_model=CharacterSessionOptionsResponse)
+def get_character_session_options(character_id: str, db: Session = Depends(get_db)):
+    """Return opening-message choices and the generated runtime state for the session wizard."""
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=404, detail="角色不存在")
+
+    try:
+        normalized = json.loads(character.normalized_json) if character.normalized_json else {}
+    except (json.JSONDecodeError, TypeError):
+        normalized = {}
+    if not isinstance(normalized, dict):
+        normalized = {}
+
+    settings_data = SettingsService.get_all_settings(db)
+    username = settings_data.get("username", "用户")
+    candidates = [character.first_message]
+    alternate = normalized.get("alternate_greetings", [])
+    if isinstance(alternate, list):
+        candidates.extend(item for item in alternate if isinstance(item, str))
+
+    greetings: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        rendered = replace_template_vars(str(item or "").strip(), character.name, username)
+        if rendered and rendered not in seen:
+            greetings.append(rendered)
+            seen.add(rendered)
+
+    profile = character_profile(character)
+    initial_state = build_initial_state(profile, normalized, username=username)
+    return {
+        "character_id": character.id,
+        "character_name": character.name,
+        "greetings": greetings,
+        "runtime_profile": profile,
+        "initial_state": initial_state,
+    }
 
 
 @router.get("/{character_id}", response_model=CharacterResponse)

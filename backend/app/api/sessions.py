@@ -5,7 +5,7 @@ from datetime import datetime
 import json
 
 from ..db.session import get_db
-from ..db.models import ChatSession, Message, Character, Memory, TurnSnapshot, Persona, CharacterGroup
+from ..db.models import ChatSession, Message, Character, Memory, TurnSnapshot, Persona, CharacterGroup, GroupMember
 from ..schemas import (
     ChatSessionResponse, ChatSessionCreate, ChatSessionUpdate,
     MessageResponse, MessageCreate, MessageUpdate
@@ -14,6 +14,7 @@ from ..services.character_parser.parser import replace_template_vars
 from ..services.settings_service import SettingsService
 from ..core.logging import logger
 from ..services.runtime.session_service import ensure_session_state
+from ..services.runtime.state_engine import serialize_state_document
 from ..services.rendering.message_ast import parse_message_ast
 
 router = APIRouter(tags=["sessions"])
@@ -44,13 +45,23 @@ def create_session(session_data: ChatSessionCreate, db: Session = Depends(get_db
     if persona_id:
         if not db.query(Persona).filter(Persona.id == persona_id).first():
             raise HTTPException(status_code=400, detail="Persona 不存在")
-    else:
+    elif session_data.use_default_persona:
         default_persona = db.query(Persona).filter(Persona.is_default.is_(True)).first()
         persona_id = default_persona.id if default_persona else None
+    else:
+        persona_id = None
 
     group_id = session_data.group_id
-    if group_id and not db.query(CharacterGroup).filter(CharacterGroup.id == group_id).first():
-        raise HTTPException(status_code=400, detail="群组不存在")
+    if group_id:
+        group = db.query(CharacterGroup).filter(CharacterGroup.id == group_id).first()
+        if not group:
+            raise HTTPException(status_code=400, detail="群组不存在")
+        membership = db.query(GroupMember).filter(
+            GroupMember.group_id == group_id,
+            GroupMember.character_id == character.id,
+        ).first()
+        if not membership:
+            raise HTTPException(status_code=400, detail="主角色不属于所选群组")
 
     session = ChatSession(
         character_id=session_data.character_id,
@@ -64,12 +75,22 @@ def create_session(session_data: ChatSessionCreate, db: Session = Depends(get_db
     # Initialize runtime before the greeting so the opening message can own an
     # immutable initial-state snapshot instead of falling back to the latest state.
     runtime = ensure_session_state(db, session, character)
+    if session_data.initial_state is not None:
+        try:
+            serialized_state = serialize_state_document(session_data.initial_state)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+        runtime.initial_state_json = serialized_state
+        runtime.state_json = serialized_state
 
-    if character.first_message:
+    opening_message = "" if session_data.skip_opening_message else (
+        character.first_message if session_data.opening_message is None else session_data.opening_message
+    )
+    if opening_message:
         settings = SettingsService.get_all_settings(db)
         username = settings.get("username", "用户")
         first_msg_content = replace_template_vars(
-            character.first_message, character.name, username
+            opening_message, character.name, username
         )
 
         render_data = parse_message_ast(first_msg_content)

@@ -8,6 +8,7 @@ import type {
   Message,
   RuntimeSession,
   RuntimeState,
+  SessionCreateOptions,
   StreamDoneEvent,
   StreamRuntimeEvent,
   TurnRuntime,
@@ -61,7 +62,7 @@ interface AppState {
   deleteCharacter: (id: string) => Promise<void>
 
   fetchSessions: (characterId?: string) => Promise<void>
-  createSession: (characterId: string, options?: { title?: string; persona_id?: string; group_id?: string }) => Promise<ChatSession>
+  createSession: (characterId: string, options?: SessionCreateOptions) => Promise<ChatSession>
   selectSession: (session: ChatSession | null) => Promise<void>
   renameSession: (id: string, title: string) => Promise<void>
   deleteSession: (id: string) => Promise<void>

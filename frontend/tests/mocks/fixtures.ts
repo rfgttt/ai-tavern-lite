@@ -76,3 +76,49 @@ export const appSettingsFixture: AppSettings = {
   diagnostics_enabled: true,
   selftest_enabled: true,
 }
+
+export const personasFixture = [
+  {
+    id: 'persona-traveler',
+    name: '北境旅人',
+    description: '谨慎而善良的旅行者',
+    pronouns: '她/她',
+    avatar_path: '',
+    metadata: {},
+    is_default: true,
+    created_at: '2026-07-16T00:00:00Z',
+    updated_at: '2026-07-16T00:00:00Z',
+  },
+]
+
+export const groupsFixture = [
+  {
+    id: 'group-tavern',
+    name: '酒馆调查组',
+    description: '共同调查酒馆里的秘密',
+    character_ids: ['character-linya', 'character-arden'],
+    members: [
+      { character_id: 'character-linya', name: '林雅', avatar_path: '', role: 'member', position: 0 },
+      { character_id: 'character-arden', name: 'Arden', avatar_path: '', role: 'member', position: 1 },
+    ],
+    metadata: {},
+    created_at: '2026-07-16T00:00:00Z',
+    updated_at: '2026-07-16T00:00:00Z',
+  },
+]
+
+export const characterSessionOptionsFixture = {
+  character_id: 'character-linya',
+  character_name: '林雅',
+  greetings: ['晚上好。', '你终于来了。'],
+  runtime_profile: { mode: 'relationship' },
+  initial_state: {
+    runtime_version: 2,
+    mode: 'relationship',
+    scene: { location: '深夜的酒馆' },
+    character: { name: '林雅' },
+    relationship: { trust: 0 },
+    player: { name: '用户' },
+    custom: {},
+  },
+}

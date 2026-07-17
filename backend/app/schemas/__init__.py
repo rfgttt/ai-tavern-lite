@@ -71,14 +71,34 @@ class Lorebook(BaseModel):
     entries: List[LorebookEntry] = Field(default_factory=list)
 
 
+class CharacterSessionOptionsResponse(BaseModel):
+    character_id: str
+    character_name: str
+    greetings: List[str] = Field(default_factory=list)
+    runtime_profile: Dict[str, Any] = Field(default_factory=dict)
+    initial_state: Dict[str, Any] = Field(default_factory=dict)
+
+
 class ChatSessionBase(BaseModel):
-    title: str = "新对话"
+    title: str = Field(default="新对话", min_length=1, max_length=200)
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("会话标题不能为空")
+        return cleaned
 
 
 class ChatSessionCreate(ChatSessionBase):
     character_id: str
     persona_id: Optional[str] = None
     group_id: Optional[str] = None
+    use_default_persona: bool = True
+    opening_message: Optional[str] = Field(None, max_length=200_000)
+    skip_opening_message: bool = False
+    initial_state: Optional[Dict[str, Any]] = None
 
 
 class ChatSessionUpdate(BaseModel):

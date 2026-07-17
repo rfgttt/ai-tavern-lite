@@ -20,7 +20,7 @@ from ..services.runtime.session_service import (
     runtime_payload,
     snapshot_payload,
 )
-from ..services.runtime.state_engine import MAX_STATE_BYTES
+from ..services.runtime.state_engine import serialize_state_document
 
 router = APIRouter(tags=["runtime"])
 
@@ -58,11 +58,9 @@ def replace_runtime_state(
     session = _get_session(db, session_id)
     runtime = ensure_session_state(db, session)
     try:
-        serialized = json.dumps(update.state, ensure_ascii=False)
-    except (TypeError, ValueError) as error:
-        raise HTTPException(status_code=400, detail=f"状态不是有效 JSON: {error}")
-    if len(serialized.encode("utf-8")) > MAX_STATE_BYTES:
-        raise HTTPException(status_code=400, detail="状态大小超过限制")
+        serialized = serialize_state_document(update.state)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
     runtime.state_json = serialized
     runtime.revision = (runtime.revision or 0) + 1
     db.commit()

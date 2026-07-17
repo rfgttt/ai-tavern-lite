@@ -2,7 +2,9 @@ import axios from 'axios'
 import type {
   Character,
   CharacterDraft,
+  CharacterSessionOptions,
   ChatSession,
+  SessionCreateOptions,
   Message,
   Memory,
   AppSettings,
@@ -37,6 +39,7 @@ export const healthCheck = () => api.get('/health')
 export const getCharacters = () => api.get<Character[]>('/characters')
 export const createCharacter = (data: CharacterDraft) => api.post<Character>('/characters', data)
 export const getCharacter = (id: string) => api.get<Character>(`/characters/${id}`)
+export const getCharacterSessionOptions = (id: string) => api.get<CharacterSessionOptions>(`/characters/${id}/session-options`)
 export const getCharacterCompatibility = (id: string) => api.get<CardCompatibilityReport>(`/characters/${id}/compatibility`)
 export const importCharacter = (file: File) => {
   const formData = new FormData()
@@ -56,7 +59,7 @@ export const updateLorebook = (id: string, data: Lorebook) =>
 // Sessions
 export const getSessions = (characterId?: string) =>
   api.get<ChatSession[]>('/sessions', { params: characterId ? { character_id: characterId } : undefined })
-export const createSession = (characterId: string, title?: string, options?: { persona_id?: string; group_id?: string }) =>
+export const createSession = (characterId: string, title?: string, options?: SessionCreateOptions) =>
   api.post<ChatSession>('/sessions', { character_id: characterId, title, ...options })
 export const updateSession = (id: string, data: { title?: string }) =>
   api.put<ChatSession>(`/sessions/${id}`, data)

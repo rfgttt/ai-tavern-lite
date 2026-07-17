@@ -28,6 +28,24 @@ export interface ChatSession {
   updated_at: string
 }
 
+export interface CharacterSessionOptions {
+  character_id: string
+  character_name: string
+  greetings: string[]
+  runtime_profile: Record<string, unknown>
+  initial_state: RuntimeState
+}
+
+export interface SessionCreateOptions {
+  title?: string
+  persona_id?: string
+  group_id?: string
+  use_default_persona?: boolean
+  opening_message?: string
+  skip_opening_message?: boolean
+  initial_state?: RuntimeState
+}
+
 export type MessageSegment =
   | { type: 'dialogue'; speaker: string; text: string; emotion?: string }
   | { type: 'narration' | 'thought' | 'markdown'; text: string }

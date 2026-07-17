@@ -14,6 +14,34 @@ MAX_STATE_BYTES = 512 * 1024
 _FORBIDDEN_KEYS = {"__proto__", "prototype", "constructor"}
 
 
+def serialize_state_document(state: dict) -> str:
+    """Validate and serialize a complete runtime state document."""
+    if not isinstance(state, dict):
+        raise ValueError("状态根节点必须是对象")
+
+    stack: list[Any] = [state]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            for raw_key, value in current.items():
+                key = str(raw_key)
+                if key in _FORBIDDEN_KEYS:
+                    raise ValueError(f"状态包含禁止字段: {key}")
+                if len(key) > 160:
+                    raise ValueError("状态字段名称过长")
+                stack.append(value)
+        elif isinstance(current, list):
+            stack.extend(current)
+
+    try:
+        serialized = json.dumps(state, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"状态不是有效 JSON: {error}") from error
+    if len(serialized.encode("utf-8")) > MAX_STATE_BYTES:
+        raise ValueError("状态大小超过限制")
+    return serialized
+
+
 @dataclass
 class PatchResult:
     state: dict
