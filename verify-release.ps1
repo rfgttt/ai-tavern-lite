@@ -52,6 +52,9 @@ try {
         "start.ps1",
         "backend\requirements.txt",
         "backend\pytest.ini",
+        "backend\alembic.ini",
+        "backend\migrations\env.py",
+        "backend\migrations\versions\20260717_0001_initial_schema.py",
         "frontend\package.json",
         "frontend\package-lock.json"
     )
@@ -205,7 +208,7 @@ try {
 
     Push-Location (Join-Path $root "backend")
     try {
-        & $venvPython -m compileall -q app
+        & $venvPython -m compileall -q app migrations
         Assert-LastExitCode "Python compile check"
     }
     finally {
@@ -213,6 +216,24 @@ try {
     }
 
     Write-Pass "Backend Python compilation"
+
+    Write-Step "Checking Alembic migration graph"
+
+    Push-Location (Join-Path $root "backend")
+    try {
+        $migrationHeads = @(& $venvPython -m alembic heads)
+        Assert-LastExitCode "Alembic heads check"
+    }
+    finally {
+        Pop-Location
+    }
+
+    $migrationHeadText = $migrationHeads -join "`n"
+    Assert-Condition `
+        ($migrationHeads.Count -eq 1 -and $migrationHeadText -match "20260717_0001.*head") `
+        "Alembic migration graph must have exactly one expected head."
+
+    Write-Pass "Alembic migration graph"
 
     Write-Step "Running backend tests"
 

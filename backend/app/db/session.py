@@ -1,11 +1,16 @@
-from sqlalchemy import create_engine, event, inspect, text
-from sqlalchemy.orm import declarative_base, sessionmaker
-from ..core.config import settings
-from ..core.logging import logger
-import sqlite3
+from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
-from sqlalchemy.engine import make_url
+import shutil
+import sqlite3
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+from ..core.config import settings
+from ..core.logging import logger
 
 Base = declarative_base()
 
@@ -29,6 +34,7 @@ if engine.dialect.name == "sqlite":
         finally:
             cursor.close()
 
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -40,17 +46,22 @@ def get_db():
         db.close()
 
 
-def backup_database():
-    """Create a transaction-consistent SQLite backup before starting."""
-    url = make_url(settings.database_url)
+def _sqlite_database_path(target_engine: Engine = engine) -> Path | None:
+    url = make_url(target_engine.url)
     if url.get_backend_name() != "sqlite" or not url.database or url.database == ":memory:":
-        return
+        return None
 
     db_file = Path(url.database)
     if not db_file.is_absolute():
         db_file = (Path.cwd() / db_file).resolve()
-    if not db_file.exists():
-        return
+    return db_file
+
+
+def backup_database(target_engine: Engine = engine) -> Path | None:
+    """Create a transaction-consistent SQLite backup before migration."""
+    db_file = _sqlite_database_path(target_engine)
+    if db_file is None or not db_file.exists():
+        return None
 
     settings.backups_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -61,91 +72,84 @@ def backup_database():
             with sqlite3.connect(str(backup_path), timeout=30) as destination:
                 source.backup(destination)
         logger.info("Database backup created: %s", backup_path)
+    except Exception as error:
+        backup_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Database backup failed; migration was not started: {error}") from error
 
+    try:
         backups = sorted(settings.backups_dir.glob("ai_tavern_backup_*.db"))
         for old_backup in backups[:-5]:
             old_backup.unlink(missing_ok=True)
             logger.info("Old backup removed: %s", old_backup)
     except Exception as error:
-        backup_path.unlink(missing_ok=True)
-        logger.warning("Database backup failed: %s", error)
+        logger.warning("Old database backup cleanup failed: %s", error)
+
+    return backup_path
 
 
-
-def migrate_sqlite_schema(target_engine=engine):
-    """Apply safe, idempotent migrations that create_all cannot add to old SQLite DBs."""
-    if target_engine.dialect.name != "sqlite":
+def _restore_database_after_failed_migration(
+    *,
+    target_engine: Engine,
+    database_path: Path | None,
+    backup_path: Path | None,
+    database_existed: bool,
+) -> None:
+    if database_path is None:
         return
 
-    with target_engine.begin() as connection:
-        inspector = inspect(connection)
-        tables = set(inspector.get_table_names())
+    target_engine.dispose()
+    for sidecar in (
+        Path(f"{database_path}-wal"),
+        Path(f"{database_path}-shm"),
+    ):
+        sidecar.unlink(missing_ok=True)
 
-        if "messages" in tables:
-            message_columns = {item["name"] for item in inspector.get_columns("messages")}
-            for column_name, ddl in (
-                ("segments_json", "TEXT DEFAULT '[]'"),
-                ("artifacts_json", "TEXT DEFAULT '[]'"),
-                ("speaker_metadata_json", "TEXT DEFAULT '{}'"),
-                ("render_version", "INTEGER DEFAULT 2"),
-            ):
-                if column_name not in message_columns:
-                    connection.execute(text(f"ALTER TABLE messages ADD COLUMN {column_name} {ddl}"))
-                    logger.info("Migrated messages.%s", column_name)
+    if backup_path is not None and backup_path.exists():
+        database_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(backup_path, database_path)
+        logger.error("Database restored from backup after migration failure: %s", backup_path)
+    elif not database_existed:
+        database_path.unlink(missing_ok=True)
+        logger.error("Incomplete new database removed after migration failure: %s", database_path)
+    else:
+        logger.critical(
+            "Database migration failed and no usable backup was available: %s",
+            database_path,
+        )
 
-            unique_constraints = inspector.get_unique_constraints("messages")
-            indexes = inspector.get_indexes("messages")
-            has_sequence_uniqueness = any(
-                set(item.get("column_names") or []) == {"session_id", "sequence"}
-                for item in [*unique_constraints, *indexes]
-                if item.get("unique", True)
-            )
 
-            if not has_sequence_uniqueness:
-                rows = connection.execute(
-                    text(
-                        "SELECT id, session_id FROM messages "
-                        "ORDER BY session_id, sequence, COALESCE(created_at, ''), id"
-                    )
-                ).all()
-                next_sequence: dict[str, int] = {}
-                for message_id, session_id in rows:
-                    sequence = next_sequence.get(session_id, 0)
-                    connection.execute(
-                        text("UPDATE messages SET sequence = :sequence WHERE id = :message_id"),
-                        {"sequence": sequence, "message_id": message_id},
-                    )
-                    next_sequence[session_id] = sequence + 1
+def migrate_sqlite_schema(target_engine: Engine = engine):
+    """Compatibility wrapper for old callers; Alembic now owns migrations."""
+    from .migrations import upgrade_database
 
-                connection.execute(
-                    text(
-                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_message_session_sequence "
-                        "ON messages (session_id, sequence)"
-                    )
-                )
-                logger.info("Migrated message sequence uniqueness")
+    return upgrade_database(target_engine)
 
-        if "chat_sessions" in tables:
-            session_columns = {item["name"] for item in inspector.get_columns("chat_sessions")}
-            for column_name in ("persona_id", "group_id"):
-                if column_name not in session_columns:
-                    connection.execute(text(f"ALTER TABLE chat_sessions ADD COLUMN {column_name} VARCHAR"))
-                    logger.info("Migrated chat_sessions.%s", column_name)
 
-        if "memories" in tables:
-            connection.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_memories_session_id "
-                    "ON memories (session_id)"
-                )
-            )
-
-def init_db():
-    """Initialize database and create tables."""
+def init_db(target_engine: Engine = engine):
+    """Back up, migrate, and validate the configured database."""
     settings.ensure_directories()
-    backup_database()
+    database_path = _sqlite_database_path(target_engine)
+    database_existed = bool(database_path and database_path.exists())
+    backup_path = backup_database(target_engine)
 
-    from . import models  # noqa: F401
-    Base.metadata.create_all(bind=engine)
-    migrate_sqlite_schema(engine)
-    logger.info("Database initialized successfully")
+    try:
+        from . import models  # noqa: F401
+        from .migrations import upgrade_database, validate_database_schema
+
+        revision = upgrade_database(target_engine)
+        validation = validate_database_schema(target_engine)
+    except Exception:
+        _restore_database_after_failed_migration(
+            target_engine=target_engine,
+            database_path=database_path,
+            backup_path=backup_path,
+            database_existed=database_existed,
+        )
+        raise
+
+    logger.info(
+        "Database initialized successfully revision=%s tables=%s",
+        revision,
+        validation.table_count,
+    )
+    return validation

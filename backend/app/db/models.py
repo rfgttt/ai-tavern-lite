@@ -128,7 +128,7 @@ class Memory(Base):
 
     id = Column(String, primary_key=True, default=generate_uuid)
     character_id = Column(String, ForeignKey("characters.id", ondelete="CASCADE"), nullable=True)
-    session_id = Column(String, ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=True)
+    session_id = Column(String, ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=True, index=True)
     category = Column(String, default="general")  # fact, relationship, event, preference, pending
     content = Column(Text, default="")
     importance = Column(Float, default=0.5)

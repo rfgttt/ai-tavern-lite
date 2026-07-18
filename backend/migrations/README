@@ -1,0 +1,16 @@
+AI Tavern Lite database migrations
+==================================
+
+The application upgrades the configured database to Alembic head during
+startup.  The first revision can adopt an existing unversioned SQLite database
+without recreating user tables.
+
+Common commands (run from the backend directory):
+
+    .venv\Scripts\python.exe -m alembic current
+    .venv\Scripts\python.exe -m alembic history
+    .venv\Scripts\python.exe -m alembic heads
+
+Use the project-level scripts\database-migrate.ps1 wrapper for a backed-up
+manual upgrade.  Do not run `alembic downgrade base`; the baseline downgrade is
+intentionally blocked because it would delete all user data.
