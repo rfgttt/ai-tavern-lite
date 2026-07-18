@@ -200,8 +200,15 @@ export const clearDiagnosticsLogs = () =>
   api.delete<{ success: boolean; message: string }>('/diagnostics/logs')
 
 // Memory
-export const getMemories = (params?: { character_id?: string; category?: string; search?: string }) =>
-  api.get<Memory[]>('/memories', { params })
+export type MemoryScopeFilter = 'effective' | 'session' | 'character' | 'global'
+
+export const getMemories = (params?: {
+  character_id?: string
+  session_id?: string
+  scope?: MemoryScopeFilter
+  category?: string
+  search?: string
+}) => api.get<Memory[]>('/memories', { params })
 export const createMemory = (data: Partial<Memory>) =>
   api.post<Memory>('/memories', data)
 export const updateMemory = (id: string, data: Partial<Memory>) =>

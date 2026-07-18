@@ -142,6 +142,7 @@ class ChatPreparationService:
         memories = MemoryService.get_relevant_memories(
             self.db,
             character_id=character.id,
+            session_id=session.id,
             query_text=query_text,
             max_entries=app_settings.get("max_memory_entries", 12),
         )
@@ -256,6 +257,7 @@ class ChatPreparationService:
         memories = MemoryService.get_relevant_memories(
             self.db,
             character_id=character.id,
+            session_id=session.id,
             query_text=query_text,
             max_entries=app_settings.get("max_memory_entries", 12),
         )

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getMemories, createMemory, updateMemory, deleteMemory } from '@/api'
+import type { MemoryScopeFilter } from '@/api'
 import type { Memory } from '@/types'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/stores/appStore'
@@ -14,6 +15,8 @@ import {
   ToggleRight,
   Bookmark,
 } from 'lucide-react'
+
+type MemoryCreateScope = 'character' | 'session' | 'global'
 
 const categoryLabels: Record<string, string> = {
   general: '通用',
@@ -31,10 +34,11 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
   const [memories, setMemories] = useState<Memory[]>([])
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [scopeFilter, setScopeFilter] = useState<MemoryScopeFilter>('effective')
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingMemory, setEditingMemory] = useState<Memory | null>(null)
-  const [scope, setScope] = useState<'character' | 'session' | 'global'>('character')
+  const [scope, setScope] = useState<MemoryCreateScope>('character')
   const [formData, setFormData] = useState({
     category: 'general',
     content: '',
@@ -46,14 +50,27 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
   const categories = ['general', 'fact', 'relationship', 'event', 'preference', 'pending']
 
   useEffect(() => {
+    if (scopeFilter === 'session' && !currentSession) setScopeFilter('effective')
+    if (scopeFilter === 'character' && !selectedCharacter) setScopeFilter('effective')
+  }, [scopeFilter, selectedCharacter, currentSession])
+
+  useEffect(() => {
     const timer = window.setTimeout(() => { void loadMemories() }, 250)
     return () => window.clearTimeout(timer)
-  }, [search, categoryFilter])
+  }, [search, categoryFilter, scopeFilter, selectedCharacter?.id, currentSession?.id])
 
   const loadMemories = async () => {
     setLoading(true)
     try {
-      const params: any = {}
+      const resolvedScope =
+        scopeFilter === 'session' && !currentSession
+          ? 'effective'
+          : scopeFilter === 'character' && !selectedCharacter
+            ? 'effective'
+            : scopeFilter
+      const params: NonNullable<Parameters<typeof getMemories>[0]> = { scope: resolvedScope }
+      if (selectedCharacter?.id) params.character_id = selectedCharacter.id
+      if (currentSession?.id) params.session_id = currentSession.id
       if (search) params.search = search
       if (categoryFilter) params.category = categoryFilter
       const res = await getMemories(params)
@@ -99,8 +116,13 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
         await createMemory({
           ...formData,
           content,
-          character_id: scope === 'character' ? selectedCharacter?.id : undefined,
-          session_id: scope === 'session' ? currentSession?.id : undefined,
+          character_id:
+            scope === 'global'
+              ? null
+              : scope === 'session'
+                ? currentSession?.character_id ?? selectedCharacter?.id ?? null
+                : selectedCharacter?.id ?? null,
+          session_id: scope === 'session' ? currentSession?.id ?? null : null,
         })
       }
       setShowAddModal(false)
@@ -135,7 +157,7 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
               </div>
               <div>
                 <h1 className="text-lg font-semibold text-tavern-text-primary">长期记忆</h1>
-                <p className="text-xs text-tavern-text-muted">管理角色的持久化记忆条目</p>
+                <p className="text-xs text-tavern-text-muted">全局、角色共享与会话专属记忆严格隔离</p>
               </div>
             </div>
             <button onClick={openAddModal} className="btn btn-primary flex items-center gap-1.5">
@@ -157,6 +179,16 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
                   className="input input-search"
                 />
               </div>
+              <select
+                value={scopeFilter}
+                onChange={(e) => setScopeFilter(e.target.value as MemoryScopeFilter)}
+                className="input w-44"
+              >
+                <option value="effective">当前上下文</option>
+                {currentSession ? <option value="session">仅当前会话</option> : null}
+                {selectedCharacter ? <option value="character">仅当前角色共享</option> : null}
+                <option value="global">仅全局</option>
+              </select>
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
@@ -213,7 +245,7 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
                         {categoryLabels[mem.category] || mem.category}
                       </span>
                       <span className="tag text-[10px] px-2 py-0">
-                        {mem.session_id ? '当前会话' : mem.character_id ? '角色专属' : '全局'}
+                        {mem.session_id ? '会话专属' : mem.character_id ? '角色共享' : '全局'}
                       </span>
                       <span className="text-[11px] text-tavern-text-muted">
                         重要度: {mem.importance.toFixed(1)}
@@ -269,8 +301,8 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
             <div className="p-5 space-y-4">
               {!editingMemory ? (
                 <div>
-                  <label className="block text-xs text-tavern-text-secondary mb-1.5 font-medium">作用范围</label>
-                  <select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)} className="input">
+                  <label htmlFor="memory_scope" className="block text-xs text-tavern-text-secondary mb-1.5 font-medium">作用范围</label>
+                  <select id="memory_scope" value={scope} onChange={(event) => setScope(event.target.value as MemoryCreateScope)} className="input">
                     {currentSession ? <option value="session">当前会话（最精确）</option> : null}
                     {selectedCharacter ? <option value="character">当前角色</option> : null}
                     <option value="global">所有角色（谨慎使用）</option>
@@ -278,8 +310,9 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
                 </div>
               ) : null}
               <div>
-                <label className="block text-xs text-tavern-text-secondary mb-1.5 font-medium">分类</label>
+                <label htmlFor="memory_category" className="block text-xs text-tavern-text-secondary mb-1.5 font-medium">分类</label>
                 <select
+                  id="memory_category"
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                   className="input"
@@ -293,8 +326,9 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
               </div>
 
               <div>
-                <label className="block text-xs text-tavern-text-secondary mb-1.5 font-medium">记忆内容</label>
+                <label htmlFor="memory_content" className="block text-xs text-tavern-text-secondary mb-1.5 font-medium">记忆内容</label>
                 <textarea
+                  id="memory_content"
                   value={formData.content}
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                   className="textarea h-24"
@@ -303,10 +337,11 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
               </div>
 
               <div>
-                <label className="block text-xs text-tavern-text-secondary mb-1.5 font-medium">
+                <label htmlFor="memory_importance" className="block text-xs text-tavern-text-secondary mb-1.5 font-medium">
                   重要度: {formData.importance}
                 </label>
                 <input
+                  id="memory_importance"
                   type="range"
                   min="0"
                   max="1"
@@ -320,8 +355,9 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
               </div>
 
               <div>
-                <label className="block text-xs text-tavern-text-secondary mb-1.5 font-medium">关键词（逗号分隔）</label>
+                <label htmlFor="memory_keywords" className="block text-xs text-tavern-text-secondary mb-1.5 font-medium">关键词（逗号分隔）</label>
                 <input
+                  id="memory_keywords"
                   type="text"
                   value={formData.keywords}
                   onChange={(e) => setFormData({ ...formData, keywords: e.target.value })}
