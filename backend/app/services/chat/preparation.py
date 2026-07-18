@@ -9,12 +9,14 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from ...core.config import settings
 from ...core.logging import logger
-from ...db.models import Character, ChatSession, Message, TurnSnapshot
+from ...db.models import Character, ChatSession, Memory, Message, TurnSnapshot
 from ...schemas import ChatRequest, PromptPreviewRequest, PromptPreviewResponse, PromptSection
 from ..lorebook.service import LorebookService
 from ..memory.service import MemoryService
 from ..prompt_builder.builder import PromptBuilder
+from ..prompt_builder.inspection import build_prompt_inspection
 from ..runtime.session_service import ensure_session_state, json_load
 from ..settings_service import SettingsService
 from .context import ChatStreamContext
@@ -261,6 +263,18 @@ class ChatPreparationService:
             query_text=query_text,
             max_entries=app_settings.get("max_memory_entries", 12),
         )
+        memory_catalog = (
+            self.db.query(Memory)
+            .filter(
+                MemoryService.scope_filter(
+                    "effective",
+                    character_id=character.id,
+                    session_id=session.id,
+                )
+            )
+            .order_by(Memory.updated_at.desc(), Memory.id.asc())
+            .all()
+        )
         runtime = ensure_session_state(self.db, session, character)
         runtime_profile = json_load(runtime.profile_json, {})
         runtime_state = json_load(runtime.state_json, {})
@@ -286,22 +300,55 @@ class ChatPreparationService:
             group_characters=group_characters,
         )
 
-        return PromptPreviewResponse(
-            sections=[
-                PromptSection(
-                    name=section.name,
-                    content=(
-                        section.content[:500] + "..."
-                        if len(section.content) > 500
-                        else section.content
-                    ),
-                    estimated_tokens=section.estimated_tokens,
-                    source=section.source,
+        inspection = build_prompt_inspection(
+            built_prompt=built_prompt,
+            context_window=app_settings.get("context_window", 8192),
+            max_new_tokens=app_settings.get("max_tokens", 1024),
+            memory_catalog=memory_catalog,
+            selected_memories=memories,
+            lorebook_catalog=lorebook_entries,
+            triggered_lorebook=triggered_lorebook,
+            recent_text=recent_text,
+        )
+
+        section_content_complete = not settings.is_production
+
+        def preview_content(content: str) -> str:
+            if section_content_complete or len(content) <= 500:
+                return content
+            return content[:500].rstrip() + "\n…（生产环境预览仅显示前 500 个字符）"
+
+        preview_sections = [
+            PromptSection(
+                name=section.name,
+                content=preview_content(
+                    built_prompt.history_preview_content
+                    if section.name == "聊天历史"
+                    else section.content
+                ),
+                estimated_tokens=section.estimated_tokens,
+                source=section.source,
+            )
+            for section in built_prompt.sections
+        ]
+        if built_prompt.pending_user_tokens > 0 and built_prompt.messages:
+            final_message = built_prompt.messages[-1]
+            if final_message.get("role") == "user":
+                preview_sections.append(
+                    PromptSection(
+                        name="当前用户消息",
+                        content=preview_content(final_message.get("content", "")),
+                        estimated_tokens=built_prompt.pending_user_tokens,
+                        source="request.message",
+                    )
                 )
-                for section in built_prompt.sections
-            ],
+
+        return PromptPreviewResponse(
+            sections=preview_sections,
             total_estimated_tokens=built_prompt.total_estimated_tokens,
             context_budget=built_prompt.context_budget,
+            section_content_complete=section_content_complete,
+            inspection=inspection,
         )
 
     def require_session(self, session_id: str) -> ChatSession:

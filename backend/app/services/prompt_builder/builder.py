@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from ...db.models import Message, Character, Memory
 from ..character_parser.parser import replace_template_vars
 from ..lorebook.service import LorebookService, LorebookEntry
@@ -26,6 +26,16 @@ class BuiltPrompt:
     total_estimated_tokens: int
     context_budget: int
     selected_lorebook_ids: List[Any]
+    selected_lorebook_object_ids: List[int] = field(default_factory=list)
+    section_budgets: Dict[str, int] = field(default_factory=dict)
+    section_truncated: Dict[str, bool] = field(default_factory=dict)
+    history_total_count: int = 0
+    history_included_count: int = 0
+    history_earliest_sequence: int | None = None
+    pending_user_tokens: int = 0
+    history_preview_content: str = ""
+    lorebook_resolved_content: Dict[int, str] = field(default_factory=dict)
+    lorebook_injected_content: Dict[int, str] = field(default_factory=dict)
 
 
 def estimate_tokens(text: str) -> int:
@@ -41,10 +51,10 @@ def _select_lore_text(
     max_tokens: int,
     resolved: Dict[int, str],
     heading: str,
-) -> Tuple[List[LorebookEntry], str]:
+) -> Tuple[List[LorebookEntry], str, str, List[str]]:
     """Select whole entries and clip one important oversized tail instead of dropping it."""
     if not entries or max_tokens <= 0:
-        return [], ""
+        return [], "", "", []
     heading_cost = estimate_tokens(heading)
     remaining = max(0, max_tokens - heading_cost)
     selected: List[LorebookEntry] = []
@@ -67,8 +77,51 @@ def _select_lore_text(
                 rendered.append(clipped)
             break
     if not rendered:
-        return [], ""
-    return selected, truncate_text(heading + "\n" + "\n\n".join(rendered), max_tokens, estimate_tokens)
+        return [], "", "", []
+    source_text = heading + "\n" + "\n\n".join(rendered)
+    return selected, truncate_text(source_text, max_tokens, estimate_tokens), source_text, rendered
+
+
+def _visible_prefix_length(final_text: str, source_text: str) -> int:
+    """Return how much of source_text is visible before a truncation marker."""
+    if final_text == source_text:
+        return len(source_text)
+    stripped = (final_text or "").rstrip()
+    for marker in ("…（该部分因上下文预算截断）", "…"):
+        if stripped.endswith(marker):
+            prefix = stripped[: -len(marker)].rstrip()
+            return min(len(prefix), len(source_text))
+    return min(len(final_text or ""), len(source_text))
+
+
+def _visible_lore_blocks(
+    *,
+    final_text: str,
+    prefix_text: str,
+    lore_source_text: str,
+    selected_entries: List[LorebookEntry],
+    rendered_blocks: List[str],
+) -> Dict[int, str]:
+    """Map selected lore entries to the exact visible block prefix in final_text."""
+    if not lore_source_text or not selected_entries:
+        return {}
+
+    source_text = "\n\n".join(
+        part for part in (prefix_text, lore_source_text) if part
+    )
+    visible_end = _visible_prefix_length(final_text, source_text)
+    lore_offset = len(prefix_text) + 2 if prefix_text else 0
+    heading_end = lore_source_text.find("\n")
+    cursor = lore_offset + (heading_end + 1 if heading_end >= 0 else len(lore_source_text))
+    visible: Dict[int, str] = {}
+
+    for entry, block in zip(selected_entries, rendered_blocks):
+        start = cursor
+        end = start + len(block)
+        if visible_end > start:
+            visible[id(entry)] = block[: max(0, min(end, visible_end) - start)]
+        cursor = end + 2
+    return visible
 
 
 class PromptBuilder:
@@ -120,10 +173,11 @@ class PromptBuilder:
             runtime_state=runtime_state or {},
             lorebook_by_name=lorebook_by_name,
         )
-        mem_text = MemoryService.build_memory_text(memories) if memories else ""
-        mem_text = truncate_text(mem_text, budgets["memory"], estimate_tokens)
+        full_mem_text = MemoryService.build_memory_text(memories) if memories else ""
+        mem_text = truncate_text(full_mem_text, budgets["memory"], estimate_tokens)
+        full_post_hist_text = self._get_post_history_instructions(macro_context)
         post_hist_text = truncate_text(
-            self._get_post_history_instructions(macro_context), budgets["post_history"], estimate_tokens
+            full_post_hist_text, budgets["post_history"], estimate_tokens
         )
 
         platform_rules_text = self._build_platform_rules()
@@ -167,12 +221,13 @@ class PromptBuilder:
 
         base_char_text = "\n\n".join(char_parts)
         remaining_character_budget = max(0, budgets["character"] - estimate_tokens(base_char_text))
-        selected_character_lore, core_text = _select_lore_text(
+        selected_character_lore, core_text, core_source_text, core_blocks = _select_lore_text(
             character_lore, remaining_character_budget, resolved_lore, "【角色卡核心设定】"
         )
         if core_text:
             char_parts.append(core_text)
-        char_info = truncate_text("\n\n".join(char_parts), budgets["character"], estimate_tokens)
+        full_char_info = "\n\n".join(char_parts)
+        char_info = truncate_text(full_char_info, budgets["character"], estimate_tokens)
 
         platform_unused = max(0, budgets["platform"] - estimate_tokens(platform_rules))
         memory_unused = max(0, budgets["memory"] - estimate_tokens(mem_text))
@@ -186,16 +241,19 @@ class PromptBuilder:
 
         runtime_base = build_runtime_prompt(runtime_profile, runtime_state)
         runtime_remaining = max(0, runtime_budget - estimate_tokens(runtime_base))
-        selected_runtime_lore, runtime_protocol_text = _select_lore_text(
+        selected_runtime_lore, runtime_protocol_text, runtime_source_text, runtime_blocks = _select_lore_text(
             runtime_lore, runtime_remaining, resolved_lore, "【角色卡运行协议】"
         )
+        full_runtime_text = "\n\n".join(
+            part for part in (runtime_base, runtime_protocol_text) if part
+        )
         runtime_text = truncate_text(
-            "\n\n".join(part for part in (runtime_base, runtime_protocol_text) if part),
+            full_runtime_text,
             runtime_budget,
             estimate_tokens,
         )
 
-        selected_lore, lore_text = _select_lore_text(
+        selected_lore, lore_text, lore_source_text, lore_blocks = _select_lore_text(
             general_lore, lore_budget, resolved_lore, "【世界书设定】"
         )
 
@@ -248,6 +306,11 @@ class PromptBuilder:
         max_possible_history = max(0, self.context_budget - fixed_tokens - post_tokens - pending_tokens)
         available_history = min(available_history, max_possible_history)
         trimmed_messages, hist_tokens = self._trim_history(messages, available_history)
+        history_content = "\n\n".join(
+            f"[{message.role} · sequence={getattr(message, 'sequence', '—')}]\n"
+            f"{resolve_safe_macros(message.content, macro_context)}"
+            for message in trimmed_messages
+        )
 
         for name, content, source in fixed_pairs:
             sections.append(PromptSection(name=name, content=content, estimated_tokens=estimate_tokens(content), source=source))
@@ -255,7 +318,10 @@ class PromptBuilder:
             name="聊天历史",
             content=f"{len(trimmed_messages)} 条消息",
             estimated_tokens=hist_tokens,
-            source=f"保留最近消息，裁剪 {max(0, len(messages) - len(trimmed_messages))} 条",
+            source=(
+                f"保留最近消息，裁剪 {max(0, len(messages) - len(trimmed_messages))} 条；"
+                "方括号角色与序号标签仅用于检查器显示"
+            ),
         ))
         if post_hist_text:
             sections.append(PromptSection(
@@ -274,6 +340,42 @@ class PromptBuilder:
             macro_context=macro_context,
         )
         total_tokens = sum(section.estimated_tokens for section in sections) + pending_tokens
+        effective_budgets = dict(budgets)
+        effective_budgets["runtime"] = runtime_budget
+        effective_budgets["history"] = available_history
+        budget_marker = "…（该部分因上下文预算截断）"
+        section_truncated = {
+            "platform": platform_rules != platform_rules_text or budget_marker in platform_rules,
+            "character": char_info != full_char_info or budget_marker in char_info,
+            "runtime": runtime_text != full_runtime_text or budget_marker in runtime_text,
+            "lorebook": budget_marker in lore_text,
+            "memory": mem_text != full_mem_text or budget_marker in mem_text,
+            "post_history": post_hist_text != full_post_hist_text or budget_marker in post_hist_text,
+            "history": len(trimmed_messages) < len(messages),
+        }
+        lorebook_injected_content = {
+            **_visible_lore_blocks(
+                final_text=char_info,
+                prefix_text=base_char_text,
+                lore_source_text=core_source_text,
+                selected_entries=selected_character_lore,
+                rendered_blocks=core_blocks,
+            ),
+            **_visible_lore_blocks(
+                final_text=runtime_text,
+                prefix_text=runtime_base,
+                lore_source_text=runtime_source_text,
+                selected_entries=selected_runtime_lore,
+                rendered_blocks=runtime_blocks,
+            ),
+            **_visible_lore_blocks(
+                final_text=lore_text,
+                prefix_text="",
+                lore_source_text=lore_source_text,
+                selected_entries=selected_lore,
+                rendered_blocks=lore_blocks,
+            ),
+        }
         return BuiltPrompt(
             messages=final_messages,
             sections=sections,
@@ -282,6 +384,20 @@ class PromptBuilder:
             selected_lorebook_ids=[
                 entry.id for entry in [*selected_character_lore, *selected_runtime_lore, *selected_lore]
             ],
+            selected_lorebook_object_ids=[
+                id(entry) for entry in [*selected_character_lore, *selected_runtime_lore, *selected_lore]
+            ],
+            section_budgets=effective_budgets,
+            section_truncated=section_truncated,
+            history_total_count=len(messages),
+            history_included_count=len(trimmed_messages),
+            history_earliest_sequence=(
+                getattr(trimmed_messages[0], "sequence", None) if trimmed_messages else None
+            ),
+            pending_user_tokens=pending_tokens,
+            history_preview_content=history_content,
+            lorebook_resolved_content=resolved_lore,
+            lorebook_injected_content=lorebook_injected_content,
         )
 
     def _build_platform_rules(self) -> str:

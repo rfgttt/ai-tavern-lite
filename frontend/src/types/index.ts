@@ -341,10 +341,87 @@ export interface PromptSection {
   source: string
 }
 
+export interface PromptBudgetSummary {
+  context_window: number
+  reserved_output_tokens: number
+  input_budget: number
+  estimated_input_tokens: number
+  remaining_tokens: number
+  usage_percent: number
+}
+
+export interface PromptSectionInspection {
+  key: string
+  name: string
+  budget_tokens: number
+  estimated_tokens: number
+  included: boolean
+  truncated: boolean
+  reason: string
+  source: string
+}
+
+export interface PromptMemoryInspection {
+  id: string
+  category: string
+  scope: 'global' | 'character' | 'session' | string
+  content: string
+  importance: number
+  enabled: boolean
+  selected: boolean
+  included: boolean
+  truncated: boolean
+  estimated_tokens: number
+  reason: string
+}
+
+export interface PromptLorebookInspection {
+  id: string
+  title: string
+  kind: 'character_core' | 'runtime_protocol' | 'world' | string
+  enabled: boolean
+  constant: boolean
+  probability: number
+  keys: string[]
+  matched_keys: string[]
+  secondary_matched_keys: string[]
+  triggered: boolean
+  selected: boolean
+  included: boolean
+  truncated: boolean
+  content: string
+  resolved_content: string
+  injected_content: string
+  content_characters: number
+  resolved_characters: number
+  injected_characters: number
+  estimated_tokens: number
+  reason: string
+}
+
+export interface PromptHistoryInspection {
+  total_messages: number
+  included_messages: number
+  trimmed_messages: number
+  earliest_included_sequence: number | null
+  budget_tokens: number
+  estimated_tokens: number
+}
+
+export interface PromptInspection {
+  summary: PromptBudgetSummary
+  sections: PromptSectionInspection[]
+  memories: PromptMemoryInspection[]
+  lorebook: PromptLorebookInspection[]
+  history: PromptHistoryInspection
+}
+
 export interface PromptPreview {
   sections: PromptSection[]
   total_estimated_tokens: number
   context_budget: number
+  section_content_complete?: boolean
+  inspection?: PromptInspection | null
 }
 
 export interface ConnectionTestResult {

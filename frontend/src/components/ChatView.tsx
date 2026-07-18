@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BookMarked,
@@ -19,11 +19,12 @@ import {
 import { useAppStore } from '@/stores/appStore'
 import { getModelConfigurationIssue } from '@/lib/modelConfig'
 import type { Message } from '@/types'
-import PromptPreviewModal from './PromptPreviewModal'
 import ChoiceBar from './runtime/ChoiceBar'
 import RuntimeMessageMeta from './runtime/RuntimeMessageMeta'
 import StructuredMessage from './messages/StructuredMessage'
 import { useToast } from './ui/ToastProvider'
+
+const PromptPreviewModal = lazy(() => import('./PromptPreviewModal'))
 
 export default function ChatView() {
   const navigate = useNavigate()
@@ -376,7 +377,15 @@ export default function ChatView() {
         </div>
       </footer>
 
-      {showPromptPreview ? <PromptPreviewModal sessionId={currentSession.id} message={inputValue || '（预览下一轮）'} onClose={() => setShowPromptPreview(false)}/> : null}
+      {showPromptPreview ? (
+        <Suspense fallback={null}>
+          <PromptPreviewModal
+            sessionId={currentSession.id}
+            message={inputValue || '（预览下一轮）'}
+            onClose={() => setShowPromptPreview(false)}
+          />
+        </Suspense>
+      ) : null}
     </div>
   )
 }

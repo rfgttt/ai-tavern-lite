@@ -359,10 +359,87 @@ class PromptSection(BaseModel):
     source: str = ""
 
 
+class PromptBudgetSummary(BaseModel):
+    context_window: int = 8192
+    reserved_output_tokens: int = 1024
+    input_budget: int = 7168
+    estimated_input_tokens: int = 0
+    remaining_tokens: int = 0
+    usage_percent: float = 0.0
+
+
+class PromptSectionInspection(BaseModel):
+    key: str
+    name: str
+    budget_tokens: int = 0
+    estimated_tokens: int = 0
+    included: bool = False
+    truncated: bool = False
+    reason: str = ""
+    source: str = ""
+
+
+class PromptMemoryInspection(BaseModel):
+    id: str
+    category: str
+    scope: str
+    content: str
+    importance: float = 0.0
+    enabled: bool = True
+    selected: bool = False
+    included: bool = False
+    truncated: bool = False
+    estimated_tokens: int = 0
+    reason: str = ""
+
+
+class PromptLorebookInspection(BaseModel):
+    id: str
+    title: str
+    kind: str
+    enabled: bool = True
+    constant: bool = False
+    probability: int = 100
+    keys: List[str] = Field(default_factory=list)
+    matched_keys: List[str] = Field(default_factory=list)
+    secondary_matched_keys: List[str] = Field(default_factory=list)
+    triggered: bool = False
+    selected: bool = False
+    included: bool = False
+    truncated: bool = False
+    content: str = ""
+    resolved_content: str = ""
+    injected_content: str = ""
+    content_characters: int = 0
+    resolved_characters: int = 0
+    injected_characters: int = 0
+    estimated_tokens: int = 0
+    reason: str = ""
+
+
+class PromptHistoryInspection(BaseModel):
+    total_messages: int = 0
+    included_messages: int = 0
+    trimmed_messages: int = 0
+    earliest_included_sequence: Optional[int] = None
+    budget_tokens: int = 0
+    estimated_tokens: int = 0
+
+
+class PromptInspection(BaseModel):
+    summary: PromptBudgetSummary
+    sections: List[PromptSectionInspection] = Field(default_factory=list)
+    memories: List[PromptMemoryInspection] = Field(default_factory=list)
+    lorebook: List[PromptLorebookInspection] = Field(default_factory=list)
+    history: PromptHistoryInspection = Field(default_factory=PromptHistoryInspection)
+
+
 class PromptPreviewResponse(BaseModel):
     sections: List[PromptSection] = Field(default_factory=list)
     total_estimated_tokens: int = 0
     context_budget: int = 8192
+    section_content_complete: bool = False
+    inspection: Optional[PromptInspection] = None
 
 
 class HealthResponse(BaseModel):
