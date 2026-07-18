@@ -1,5 +1,6 @@
 import * as api from '@/api'
 import { createLocalMessage, mergeTurn, runtimeAfterDone, runtimeFromEvent } from '../chatHelpers'
+import { beginChatStreamRequest, invalidateChatStreamRequests, isCurrentChatStreamRequest } from '../requestGuards'
 import type { AppStoreSlice, ChatSlice } from '../types'
 
 export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
@@ -9,6 +10,10 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
   sendMessage: async (content) => {
     const session = get().currentSession
     if (!session || !content.trim() || get().generatingMessageId) return
+
+    const requestId = beginChatStreamRequest()
+    const isActiveStream = () =>
+      isCurrentChatStreamRequest(requestId) && get().currentSession?.id === session.id
 
     const pendingUser = createLocalMessage(
       session.id,
@@ -27,12 +32,14 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
 
     const controller = api.streamChat(session.id, content, {
       onRuntime: (event) => {
+        if (!isActiveStream()) return
         set((state) => ({
           runtime: runtimeFromEvent(state.runtime, session.id, event),
           activeLorebook: event.triggered_lorebook || [],
         }))
       },
       onMessage: ({ user_message, assistant_message }) => {
+        if (!isActiveStream()) return
         assistantMessageId = assistant_message.id
         set((state) => {
           let messages = state.messages.map((message) =>
@@ -50,6 +57,7 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
         })
       },
       onChunk: (chunk, messageId) => {
+        if (!isActiveStream()) return
         assistantMessageId = messageId
         assistantContent += chunk
         set((state) => {
@@ -85,6 +93,7 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
         })
       },
       onDone: (event) => {
+        if (!isActiveStream()) return
         set((state) => ({
           messages: state.messages.map((message) =>
             message.id === event.message_id
@@ -110,6 +119,7 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
         if (characterId) void get().fetchSessions(characterId)
       },
       onError: (error, messageId) => {
+        if (!isActiveStream()) return
         const targetId = messageId || assistantMessageId
         set((state) => {
           const base = {
@@ -148,7 +158,8 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
       },
     })
 
-    set({ streamController: controller })
+    if (isActiveStream()) set({ streamController: controller })
+    else controller.abort()
   },
 
   sendChoice: async (choice) => {
@@ -158,6 +169,7 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
   stopGeneration: async () => {
     const controller = get().streamController
     const messageId = get().generatingMessageId
+    invalidateChatStreamRequests()
     try {
       if (messageId && messageId !== 'pending') {
         await api.stopGeneration(messageId)
@@ -181,6 +193,10 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
     const session = get().currentSession
     if (!session || get().generatingMessageId) return
 
+    const requestId = beginChatStreamRequest()
+    const isActiveStream = () =>
+      isCurrentChatStreamRequest(requestId) && get().currentSession?.id === session.id
+
     const previousAssistant = [...get().messages]
       .reverse()
       .find((message) => message.role === 'assistant')
@@ -192,12 +208,14 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
 
     const controller = api.regenerate(session.id, {
       onRuntime: (event) => {
+        if (!isActiveStream()) return
         set((state) => ({
           runtime: runtimeFromEvent(state.runtime, session.id, event),
           activeLorebook: event.triggered_lorebook || [],
         }))
       },
       onMessage: ({ assistant_message }) => {
+        if (!isActiveStream()) return
         assistantMessageId = assistant_message.id
         set((state) => ({
           messages: state.messages.some(
@@ -209,6 +227,7 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
         }))
       },
       onChunk: (chunk, messageId) => {
+        if (!isActiveStream()) return
         assistantMessageId = messageId
         assistantContent += chunk
         set((state) => ({
@@ -225,6 +244,7 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
         }))
       },
       onDone: (event) => {
+        if (!isActiveStream()) return
         set((state) => {
           const updated = state.messages.map((message) =>
             message.id === event.message_id
@@ -264,6 +284,7 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
         if (characterId) void get().fetchSessions(characterId)
       },
       onError: (error, messageId) => {
+        if (!isActiveStream()) return
         const targetId = messageId || assistantMessageId
         set((state) => ({
           messages: targetId
@@ -276,7 +297,8 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
       },
     })
 
-    set({ streamController: controller })
+    if (isActiveStream()) set({ streamController: controller })
+    else controller.abort()
   },
 
   editMessage: async (id, content) => {

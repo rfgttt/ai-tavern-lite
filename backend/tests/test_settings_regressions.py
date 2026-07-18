@@ -61,3 +61,16 @@ def test_stream_error_sanitizer_removes_all_configured_secrets():
 
     result = _sanitize_error(RuntimeError("api-secret header-secret"), "api-secret", "header-secret")
     assert result == "*** ***"
+
+
+def test_settings_update_logs_once(test_db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "app.services.settings_service.logger.info",
+        lambda message, *args, **kwargs: calls.append(message),
+    )
+
+    response = make_client(test_db).put("/api/settings", json={"username": "单次日志"})
+
+    assert response.status_code == 200
+    assert calls.count("Settings updated") == 1

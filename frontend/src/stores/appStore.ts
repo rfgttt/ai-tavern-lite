@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { createInitialAppState } from './initialState'
 import { resetRequestGuards } from './requestGuards'
+import { resetSessionReliability } from './sessionReliability'
 import { createCharacterSlice } from './slices/characterSlice'
 import { createChatSlice } from './slices/chatSlice'
 import { createSessionSlice } from './slices/sessionSlice'
@@ -21,6 +22,7 @@ export const useAppStore = create<AppState>()((...store) => ({
     const [, get] = store
     get().streamController?.abort()
     resetRequestGuards()
+    resetSessionReliability()
     store[0](createInitialAppState())
   },
 }))

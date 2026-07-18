@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..core.config import settings as runtime_settings
-from ..core.logging import logger
 from ..core.security import UnsafeOutboundURLError, validate_outbound_url
 from ..db.session import get_db
 from ..schemas import ConnectionTestResult, SettingsResponse, SettingsUpdate
@@ -58,7 +57,6 @@ def update_settings(update: SettingsUpdate, db: Session = Depends(get_db)):
     _validate_base_url(candidate.get("base_url", ""))
 
     SettingsService.update_settings(db, update_dict)
-    logger.info("Settings updated")
     return _settings_response(db)
 
 

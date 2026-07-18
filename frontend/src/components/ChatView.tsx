@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BookMarked,
@@ -62,6 +62,10 @@ export default function ChatView() {
   const [showPromptPreview, setShowPromptPreview] = useState(false)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [pendingSubmittedText, setPendingSubmittedText] = useState<string | null>(null)
+  const timelineByMessageId = useMemo(
+    () => new Map(timeline.map((turn) => [turn.message_id, turn])),
+    [timeline],
+  )
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messageListRef = useRef<HTMLElement>(null)
@@ -293,7 +297,7 @@ export default function ChatView() {
           ) : null}
 
           {messages.map((message, index) => {
-            const turn = timeline.find((item) => item.message_id === message.id)
+            const turn = timelineByMessageId.get(message.id)
             const isAssistant = message.role === 'assistant'
             return (
               <article key={message.id} className={`flex gap-3 ${message.id.startsWith('local-') || message.generation_status === 'generating' ? 'animate-slide-up' : ''} ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>

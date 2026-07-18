@@ -2,10 +2,12 @@ import * as api from '@/api'
 import {
   beginSessionListRequest,
   getSessionLoadRequestId,
+  invalidateChatStreamRequests,
   invalidateSessionLoadRequests,
   isCurrentSessionListRequest,
   isCurrentSessionLoadRequest,
 } from '../requestGuards'
+import { dedupeSessionRequest, isSessionCacheFresh, mergeSessionCache } from '../sessionReliability'
 import type { AppStoreSlice, SessionSlice } from '../types'
 
 export const createSessionSlice: AppStoreSlice<SessionSlice> = (set, get) => ({
@@ -38,9 +40,10 @@ export const createSessionSlice: AppStoreSlice<SessionSlice> = (set, get) => ({
   },
 
   selectSession: async (session) => {
-    invalidateSessionLoadRequests()
     const current = get().currentSession
     if (!session) {
+      invalidateSessionLoadRequests()
+      invalidateChatStreamRequests()
       get().streamController?.abort()
       set({
         currentSession: null,
@@ -60,10 +63,13 @@ export const createSessionSlice: AppStoreSlice<SessionSlice> = (set, get) => ({
 
     if (current?.id === session.id) {
       set({ currentSession: session, immersiveError: null })
+      if (isSessionCacheFresh(get().sessionCache[session.id])) return
       await get().refreshCurrentSession()
       return
     }
 
+    invalidateSessionLoadRequests()
+    invalidateChatStreamRequests()
     get().streamController?.abort()
     const cached = get().sessionCache[session.id]
     set({
@@ -77,6 +83,7 @@ export const createSessionSlice: AppStoreSlice<SessionSlice> = (set, get) => ({
       immersiveError: null,
       messageLoadError: null,
       loadingMessages: !cached,
+      runtimeLoading: !cached,
     })
     await get().refreshCurrentSession()
   },
@@ -128,92 +135,93 @@ export const createSessionSlice: AppStoreSlice<SessionSlice> = (set, get) => ({
 
   fetchMessages: async (sessionId) => {
     const requestId = getSessionLoadRequestId()
-    if (get().currentSession?.id === sessionId) {
-      set({ loadingMessages: true, messageLoadError: null })
-    }
-    try {
-      const response = await api.getMessages(sessionId)
-      set((state) => ({
-        messages: state.currentSession?.id === sessionId ? response.data : state.messages,
-        sessionCache: {
-          ...state.sessionCache,
-          [sessionId]: {
-            messages: response.data,
-            runtime:
-              state.sessionCache[sessionId]?.runtime ||
-              (state.currentSession?.id === sessionId ? state.runtime : null),
-            timeline: state.sessionCache[sessionId]?.timeline || [],
-            activeLorebook: state.sessionCache[sessionId]?.activeLorebook || [],
-            loadedAt: Date.now(),
-          },
-        },
-      }))
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '消息载入失败'
-      if (isCurrentSessionLoadRequest(requestId) && get().currentSession?.id === sessionId) {
-        set({ messageLoadError: message, immersiveError: message })
+    return dedupeSessionRequest(`${requestId}:messages:${sessionId}`, async () => {
+      if (get().currentSession?.id === sessionId) {
+        set({ loadingMessages: true, messageLoadError: null })
       }
-    } finally {
-      if (isCurrentSessionLoadRequest(requestId) && get().currentSession?.id === sessionId) {
-        set({ loadingMessages: false })
+      try {
+        const response = await api.getMessages(sessionId)
+        set((state) => ({
+          messages:
+            isCurrentSessionLoadRequest(requestId) && state.currentSession?.id === sessionId
+              ? response.data
+              : state.messages,
+          sessionCache: mergeSessionCache(
+            state.sessionCache,
+            sessionId,
+            { messages: response.data, messagesLoadedAt: Date.now() },
+            state.currentSession?.id,
+          ),
+        }))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '消息载入失败'
+        if (isCurrentSessionLoadRequest(requestId) && get().currentSession?.id === sessionId) {
+          set({ messageLoadError: message, immersiveError: message })
+        }
+      } finally {
+        if (isCurrentSessionLoadRequest(requestId) && get().currentSession?.id === sessionId) {
+          set({ loadingMessages: false })
+        }
       }
-    }
+    })
   },
 
   fetchRuntime: async (sessionId) => {
     const requestId = getSessionLoadRequestId()
-    if (get().currentSession?.id === sessionId) set({ runtimeLoading: true })
-    try {
-      const response = await api.getRuntime(sessionId)
-      const lorebook = response.data.last_turn?.triggered_lorebook || []
-      set((state) => ({
-        runtime: state.currentSession?.id === sessionId ? response.data : state.runtime,
-        activeLorebook:
-          state.currentSession?.id === sessionId ? lorebook : state.activeLorebook,
-        sessionCache: {
-          ...state.sessionCache,
-          [sessionId]: {
-            messages: state.sessionCache[sessionId]?.messages || [],
-            runtime: response.data,
-            timeline: state.sessionCache[sessionId]?.timeline || [],
-            activeLorebook: lorebook,
-            loadedAt: Date.now(),
-          },
-        },
-      }))
-    } catch (error) {
-      if (isCurrentSessionLoadRequest(requestId) && get().currentSession?.id === sessionId) {
-        set({ immersiveError: error instanceof Error ? error.message : '状态载入失败' })
+    return dedupeSessionRequest(`${requestId}:runtime:${sessionId}`, async () => {
+      if (get().currentSession?.id === sessionId) set({ runtimeLoading: true })
+      try {
+        const response = await api.getRuntime(sessionId)
+        const lorebook = response.data.last_turn?.triggered_lorebook || []
+        set((state) => {
+          const isCurrent =
+            isCurrentSessionLoadRequest(requestId) && state.currentSession?.id === sessionId
+          return {
+            runtime: isCurrent ? response.data : state.runtime,
+            activeLorebook: isCurrent ? lorebook : state.activeLorebook,
+            sessionCache: mergeSessionCache(
+              state.sessionCache,
+              sessionId,
+              { runtime: response.data, activeLorebook: lorebook, runtimeLoadedAt: Date.now() },
+              state.currentSession?.id,
+            ),
+          }
+        })
+      } catch (error) {
+        if (isCurrentSessionLoadRequest(requestId) && get().currentSession?.id === sessionId) {
+          set({ immersiveError: error instanceof Error ? error.message : '状态载入失败' })
+        }
+      } finally {
+        if (isCurrentSessionLoadRequest(requestId) && get().currentSession?.id === sessionId) {
+          set({ runtimeLoading: false })
+        }
       }
-    } finally {
-      if (isCurrentSessionLoadRequest(requestId) && get().currentSession?.id === sessionId) {
-        set({ runtimeLoading: false })
-      }
-    }
+    })
   },
 
   fetchTimeline: async (sessionId) => {
     const requestId = getSessionLoadRequestId()
-    try {
-      const response = await api.getTimeline(sessionId)
-      set((state) => ({
-        timeline: state.currentSession?.id === sessionId ? response.data : state.timeline,
-        sessionCache: {
-          ...state.sessionCache,
-          [sessionId]: {
-            messages: state.sessionCache[sessionId]?.messages || [],
-            runtime: state.sessionCache[sessionId]?.runtime || null,
-            timeline: response.data,
-            activeLorebook: state.sessionCache[sessionId]?.activeLorebook || [],
-            loadedAt: Date.now(),
-          },
-        },
-      }))
-    } catch (error) {
-      if (isCurrentSessionLoadRequest(requestId) && get().currentSession?.id === sessionId) {
-        set({ immersiveError: error instanceof Error ? error.message : '时间线载入失败' })
+    return dedupeSessionRequest(`${requestId}:timeline:${sessionId}`, async () => {
+      try {
+        const response = await api.getTimeline(sessionId)
+        set((state) => ({
+          timeline:
+            isCurrentSessionLoadRequest(requestId) && state.currentSession?.id === sessionId
+              ? response.data
+              : state.timeline,
+          sessionCache: mergeSessionCache(
+            state.sessionCache,
+            sessionId,
+            { timeline: response.data, timelineLoadedAt: Date.now() },
+            state.currentSession?.id,
+          ),
+        }))
+      } catch (error) {
+        if (isCurrentSessionLoadRequest(requestId) && get().currentSession?.id === sessionId) {
+          set({ immersiveError: error instanceof Error ? error.message : '时间线载入失败' })
+        }
       }
-    }
+    })
   },
 
   refreshCurrentSession: async () => {

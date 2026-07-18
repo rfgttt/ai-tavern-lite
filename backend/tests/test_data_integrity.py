@@ -156,3 +156,27 @@ def test_2x_migration_adds_render_and_identity_columns(tmp_path):
     session_columns = {column["name"] for column in inspector.get_columns("chat_sessions")}
     assert {"segments_json", "artifacts_json", "speaker_metadata_json", "render_version"} <= message_columns
     assert {"persona_id", "group_id"} <= session_columns
+
+
+def test_large_session_history_remains_complete_and_ordered(db_with_session):
+    db, _char, session = db_with_session
+    bulk_messages = [
+        Message(
+            session_id=session.id,
+            role="user" if sequence % 2 else "assistant",
+            content=f"长会话消息 {sequence}",
+            sequence=sequence,
+            generation_status="complete",
+        )
+        for sequence in range(2, 1002)
+    ]
+    db.bulk_save_objects(bulk_messages)
+    db.commit()
+
+    response = make_client(db).get(f"/api/sessions/{session.id}/messages")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1002
+    assert [item["sequence"] for item in payload] == list(range(1002))
+    assert payload[-1]["content"] == "长会话消息 1001"

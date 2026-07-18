@@ -18,6 +18,9 @@ export interface SessionCacheEntry {
   timeline: TurnRuntime[]
   activeLorebook: LorebookTrigger[]
   loadedAt: number
+  messagesLoadedAt?: number
+  runtimeLoadedAt?: number
+  timelineLoadedAt?: number
 }
 
 export interface CharacterSlice {
