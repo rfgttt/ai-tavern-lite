@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,8 +11,22 @@ def _backend_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _default_user_data_dir() -> Path:
+    """Return a storage root that stays stable when the source tree moves."""
+    if os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "AI-Tavern-Lite" / "data"
+        return Path.home() / "AppData" / "Local" / "AI-Tavern-Lite" / "data"
+
+    xdg_data_home = os.environ.get("XDG_DATA_HOME")
+    if xdg_data_home:
+        return Path(xdg_data_home) / "AI-Tavern-Lite" / "data"
+    return Path.home() / ".local" / "share" / "AI-Tavern-Lite" / "data"
+
+
 def _default_database_url() -> str:
-    return f"sqlite:///{(_backend_dir() / 'data' / 'ai_tavern.db').as_posix()}"
+    return f"sqlite:///{(_default_user_data_dir() / 'ai_tavern.db').as_posix()}"
 
 
 def _csv_items(raw: str) -> tuple[str, ...]:
@@ -27,16 +42,19 @@ class Settings(BaseSettings):
     )
 
     base_dir: Path = _backend_dir()
-    data_dir: Path = base_dir / "data"
-    characters_dir: Path = data_dir / "characters"
-    avatars_dir: Path = data_dir / "avatars"
-    exports_dir: Path = data_dir / "exports"
-    backups_dir: Path = data_dir / "backups"
-    logs_dir: Path = data_dir / "logs"
-    diagnostics_dir: Path = data_dir / "diagnostics"
+    legacy_data_dir: Path = _backend_dir() / "data"
+    data_dir: Path = _default_user_data_dir()
+    characters_dir: Path = _default_user_data_dir() / "characters"
+    avatars_dir: Path = _default_user_data_dir() / "avatars"
+    exports_dir: Path = _default_user_data_dir() / "exports"
+    backups_dir: Path = _default_user_data_dir() / "backups"
+    logs_dir: Path = _default_user_data_dir() / "logs"
+    diagnostics_dir: Path = _default_user_data_dir() / "diagnostics"
+    storage_registry_path: Path = _default_user_data_dir().parent / "storage.json"
 
     environment: str = "development"
     database_url: str = _default_database_url()
+    storage_guard_enabled: bool = True
     max_upload_size_mb: int = 20
     max_json_body_bytes: int = 2 * 1024 * 1024
     max_request_body_bytes: int = 24 * 1024 * 1024
@@ -79,13 +97,49 @@ class Settings(BaseSettings):
 
     enable_diagnostics: bool = True
     enable_selftest: bool = True
-    create_demo_data: bool = True
+    create_demo_data: bool = False
 
     frontend_dist_dir: Path = base_dir.parent / "frontend" / "dist"
+
+    @model_validator(mode="after")
+    def _derive_storage_paths(self) -> "Settings":
+        """Keep all managed storage paths under the selected data directory."""
+        explicit = self.model_fields_set
+        self.data_dir = Path(self.data_dir).expanduser()
+        self.legacy_data_dir = Path(self.legacy_data_dir).expanduser()
+
+        derived_paths = {
+            "characters_dir": self.data_dir / "characters",
+            "avatars_dir": self.data_dir / "avatars",
+            "exports_dir": self.data_dir / "exports",
+            "backups_dir": self.data_dir / "backups",
+            "logs_dir": self.data_dir / "logs",
+            "diagnostics_dir": self.data_dir / "diagnostics",
+            "storage_registry_path": self.data_dir.parent / "storage.json",
+        }
+        for field_name, path in derived_paths.items():
+            if field_name not in explicit:
+                setattr(self, field_name, path)
+            else:
+                setattr(self, field_name, Path(getattr(self, field_name)).expanduser())
+
+        if "database_url" not in explicit:
+            self.database_url = f"sqlite:///{(self.data_dir / 'ai_tavern.db').as_posix()}"
+        return self
 
     @property
     def is_production(self) -> bool:
         return self.environment.strip().lower() in {"production", "prod"}
+
+    @property
+    def uses_managed_storage(self) -> bool:
+        """Only the canonical database under data_dir is identity-managed."""
+        prefix = "sqlite:///"
+        if not self.storage_guard_enabled or not self.database_url.startswith(prefix):
+            return False
+        configured = Path(self.database_url[len(prefix):]).expanduser().resolve(strict=False)
+        expected = (self.data_dir / "ai_tavern.db").expanduser().resolve(strict=False)
+        return os.path.normcase(str(configured)) == os.path.normcase(str(expected))
 
     @property
     def allowed_host_items(self) -> tuple[str, ...]:

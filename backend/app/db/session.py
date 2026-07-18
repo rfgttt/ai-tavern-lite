@@ -11,8 +11,11 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 from ..core.config import settings
 from ..core.logging import logger
+from .storage_guard import finalize_storage_identity, prepare_storage
 
 Base = declarative_base()
+
+storage_preflight = prepare_storage(settings)
 
 engine = create_engine(
     settings.database_url,
@@ -138,6 +141,7 @@ def init_db(target_engine: Engine = engine):
 
         revision = upgrade_database(target_engine)
         validation = validate_database_schema(target_engine)
+        storage_status = finalize_storage_identity(target_engine, storage_preflight)
     except Exception:
         _restore_database_after_failed_migration(
             target_engine=target_engine,
@@ -148,8 +152,11 @@ def init_db(target_engine: Engine = engine):
         raise
 
     logger.info(
-        "Database initialized successfully revision=%s tables=%s",
+        "Database initialized successfully revision=%s tables=%s path=%s instance=%s counts=%s",
         revision,
         validation.table_count,
+        storage_status.database_path,
+        storage_status.database_instance_id[:12] if storage_status.database_instance_id else "unmanaged",
+        storage_status.counts,
     )
     return validation

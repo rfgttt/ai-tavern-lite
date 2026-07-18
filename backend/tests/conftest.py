@@ -1,8 +1,21 @@
-import pytest
+import atexit
 import os
+from pathlib import Path
+import shutil
 import sys
 import tempfile
-from pathlib import Path
+
+import pytest
+
+# Every backend test run uses one isolated runtime root. This must be set before
+# importing app modules so create_app() can never initialize or back up a user's
+# real database during pytest.
+_TEST_RUNTIME_ROOT = Path(tempfile.mkdtemp(prefix="ai-tavern-pytest-"))
+os.environ["AI_TAVERN_DATA_DIR"] = str(_TEST_RUNTIME_ROOT / "data")
+os.environ["AI_TAVERN_DATABASE_URL"] = f"sqlite:///{(_TEST_RUNTIME_ROOT / 'data' / 'pytest.db').as_posix()}"
+os.environ["AI_TAVERN_CREATE_DEMO_DATA"] = "false"
+os.environ["AI_TAVERN_STORAGE_GUARD_ENABLED"] = "false"
+atexit.register(lambda: shutil.rmtree(_TEST_RUNTIME_ROOT, ignore_errors=True))
 
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

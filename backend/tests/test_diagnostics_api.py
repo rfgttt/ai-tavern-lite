@@ -29,6 +29,9 @@ def test_diagnostics_health_reports_components(db_with_session):
     assert payload["components"]["state_engine"] is True
     assert "provider_configured" in payload["components"]
     assert "mock_mode" in payload
+    assert "storage" in payload
+    assert "database_path" in payload["storage"]
+    assert "api_key" not in str(payload["storage"]).lower()
 
 
 def test_diagnostics_export_returns_readable_zip(db_with_session):

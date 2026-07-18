@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from ..core.config import settings
 from ..db.models import Character, ChatSession, Memory, Message, SessionState, TurnSnapshot
 from ..db.session import get_db
+from ..db.storage_guard import get_storage_status
 from ..services.diagnostics.service import diagnostic_service
 from ..services.settings_service import SettingsService
 
@@ -68,6 +69,7 @@ def _health_payload(db: Session) -> dict:
         "provider": app_settings.get("provider_name", ""),
         "model": app_settings.get("model", ""),
         "components": components,
+        "storage": get_storage_status(),
     }
 
 
@@ -89,7 +91,7 @@ def export_diagnostics(db: Session = Depends(get_db)):
             health=_health_payload(db),
             system=diagnostic_service.system_info("2.2.0-preview.1"),
             settings_payload=app_settings,
-            database_summary=_database_summary(db),
+            database_summary={**_database_summary(db), "storage": get_storage_status()},
         )
     except Exception as error:
         raise HTTPException(status_code=500, detail="生成诊断包失败") from error

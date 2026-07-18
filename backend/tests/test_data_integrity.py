@@ -20,7 +20,7 @@ def make_client(db):
     return TestClient(app)
 
 
-def test_default_database_url_is_absolute_and_backend_scoped():
+def test_configured_database_url_is_absolute_and_data_dir_scoped():
     config = Settings(_env_file=None)
     database_url = make_url(config.database_url)
 
@@ -28,10 +28,8 @@ def test_default_database_url_is_absolute_and_backend_scoped():
     assert database_url.database
 
     db_path = Path(database_url.database).resolve()
-    expected_path = (config.data_dir / "ai_tavern.db").resolve()
-
     assert db_path.is_absolute()
-    assert db_path == expected_path
+    assert db_path.parent == config.data_dir.resolve()
 
 
 def test_deleting_session_removes_session_memories(db_with_session):

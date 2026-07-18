@@ -6,6 +6,13 @@ $appUrl = "http://127.0.0.1:8000"
 $healthUrl = "$appUrl/api/health"
 $pythonExe = Join-Path $PSScriptRoot "backend\.venv\Scripts\python.exe"
 $helper = Join-Path $PSScriptRoot "scripts\open_when_ready.ps1"
+$managedDataDir = if ($env:AI_TAVERN_DATA_DIR) {
+    $env:AI_TAVERN_DATA_DIR
+} elseif ($env:LOCALAPPDATA) {
+    Join-Path $env:LOCALAPPDATA "AI-Tavern-Lite\data"
+} else {
+    Join-Path $HOME "AppData\Local\AI-Tavern-Lite\data"
+}
 
 if (-not (Test-Path $pythonExe)) {
     Write-Host "[错误] 未找到虚拟环境解释器：$pythonExe" -ForegroundColor Red
@@ -36,6 +43,7 @@ Write-Host "  AI Tavern Lite 启动中..." -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "服务地址: $appUrl"
+Write-Host "用户数据目录: $managedDataDir"
 Write-Host "浏览器会在健康检查通过后自动打开。"
 Write-Host "按 Ctrl+C 停止服务。"
 Write-Host ""
@@ -55,7 +63,7 @@ finally {
 Write-Host ""
 if ($serverExit -ne 0) {
     Write-Host "[错误] 后端启动失败，退出代码：$serverExit" -ForegroundColor Red
-    Write-Host "请保留本窗口中的报错，或查看 backend\data\logs\app.log。"
+    Write-Host "请保留本窗口中的报错，或查看 $managedDataDir\logs\app.log。"
 }
 else {
     Write-Host "服务已停止。"

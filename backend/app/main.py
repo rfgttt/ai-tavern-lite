@@ -20,7 +20,7 @@ from .core.middleware import (
 
 
 def create_demo_character():
-    """Create a demo character on first run if database is empty."""
+    """Create optional demo data only when explicitly enabled."""
     from .db.session import SessionLocal
 
     db = SessionLocal()
@@ -155,6 +155,7 @@ def create_app() -> FastAPI:
         logger.warning("Recovered %s interrupted generating messages", recovered)
 
     if settings.create_demo_data:
+        logger.warning("Explicit demo-data creation is enabled")
         create_demo_character()
 
     app.include_router(
