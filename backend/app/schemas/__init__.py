@@ -241,6 +241,7 @@ class MemoryBase(BaseModel):
 class MemoryCreate(MemoryBase):
     character_id: Optional[str] = None
     session_id: Optional[str] = None
+    allow_duplicate: bool = False
 
 
 class MemoryUpdate(BaseModel):
@@ -249,6 +250,7 @@ class MemoryUpdate(BaseModel):
     importance: Optional[float] = None
     keywords: Optional[str] = None
     enabled: Optional[bool] = None
+    allow_duplicate: bool = False
 
 
 class MemoryResponse(MemoryBase):

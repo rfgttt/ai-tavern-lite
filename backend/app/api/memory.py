@@ -7,9 +7,21 @@ from ..core.logging import logger
 from ..db.models import Memory
 from ..db.session import get_db
 from ..schemas import MemoryCreate, MemoryResponse, MemoryUpdate
-from ..services.memory.service import MemoryService
+from ..services.memory.service import MemoryDuplicateError, MemoryService
 
 router = APIRouter(tags=["memory"])
+
+
+def _duplicate_detail(error: MemoryDuplicateError) -> dict:
+    memory = error.memory
+    return {
+        "code": "memory_duplicate",
+        "message": str(error),
+        "memory_id": memory.id,
+        "enabled": memory.enabled,
+        "category": MemoryService.normalize_category(memory.category),
+        "scope": MemoryService.scope_name(memory.character_id, memory.session_id),
+    }
 
 
 @router.get("/memories", response_model=List[MemoryResponse])
@@ -21,13 +33,7 @@ def list_memories(
     search: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    """List memories with exact or effective scope filtering.
-
-    New clients should pass scope=global|character|session|effective. When scope
-    is omitted, the previous character_id filter remains available for backward
-    compatibility, except that character_id=global now correctly excludes
-    session-scoped legacy rows.
-    """
+    """List memories with exact or effective scope filtering."""
     query = db.query(Memory)
 
     try:
@@ -54,9 +60,7 @@ def list_memories(
         else:
             if character_id is not None:
                 if character_id == "global":
-                    query = query.filter(
-                        MemoryService.scope_filter("global")
-                    )
+                    query = query.filter(MemoryService.scope_filter("global"))
                 else:
                     query = query.filter(Memory.character_id == character_id)
             if session_id is not None:
@@ -65,7 +69,9 @@ def list_memories(
         raise HTTPException(status_code=422, detail=str(error)) from error
 
     if category:
-        query = query.filter(Memory.category == category)
+        query = query.filter(
+            Memory.category.in_(MemoryService.category_filter_values(category))
+        )
 
     if search:
         query = query.filter(Memory.content.contains(search))
@@ -75,20 +81,20 @@ def list_memories(
 
 @router.post("/memories", response_model=MemoryResponse)
 def create_memory(memory_data: MemoryCreate, db: Session = Depends(get_db)):
-    """Create a new memory."""
-    content = memory_data.content.strip()
-    if not content:
-        raise HTTPException(status_code=422, detail="记忆内容不能为空")
+    """Create a memory, warning on an exact duplicate unless explicitly forced."""
     try:
         return MemoryService.add_memory(
             db,
-            content=content,
+            content=memory_data.content,
             category=memory_data.category,
             importance=memory_data.importance,
             keywords=memory_data.keywords,
             character_id=memory_data.character_id,
             session_id=memory_data.session_id,
+            allow_duplicate=memory_data.allow_duplicate,
         )
+    except MemoryDuplicateError as error:
+        raise HTTPException(status_code=409, detail=_duplicate_detail(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -105,16 +111,18 @@ def update_memory(
         raise HTTPException(status_code=404, detail="记忆不存在")
 
     update_data = update.model_dump(exclude_unset=True)
-    if "content" in update_data:
-        update_data["content"] = (update_data["content"] or "").strip()
-        if not update_data["content"]:
-            raise HTTPException(status_code=422, detail="记忆内容不能为空")
-    for field, value in update_data.items():
-        setattr(memory, field, value)
-
-    db.commit()
-    db.refresh(memory)
-    return memory
+    allow_duplicate = bool(update_data.pop("allow_duplicate", False))
+    try:
+        return MemoryService.update_memory(
+            db,
+            memory,
+            update_data,
+            allow_duplicate=allow_duplicate,
+        )
+    except MemoryDuplicateError as error:
+        raise HTTPException(status_code=409, detail=_duplicate_detail(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.delete("/memories/{memory_id}")

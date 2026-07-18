@@ -338,14 +338,18 @@ class ChatStreamRunner:
                     context.query_text,
                     assistant_content,
                 ):
+                    category = MemoryService.normalize_category(memory_data["category"])
                     MemoryService.add_memory(
                         memory_db,
                         content=memory_data["content"],
-                        category=memory_data["category"],
+                        category=category,
                         importance=memory_data["importance"],
                         keywords=memory_data.get("keywords", ""),
                         character_id=context.character_id,
                         session_id=context.session_id,
+                        skip_duplicate=(
+                            category in MemoryService.AUTO_DEDUPE_CATEGORIES
+                        ),
                     )
         except Exception as error:
             logger.warning(

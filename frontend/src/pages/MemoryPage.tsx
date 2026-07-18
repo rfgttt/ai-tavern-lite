@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
+import axios from 'axios'
 import { getMemories, createMemory, updateMemory, deleteMemory } from '@/api'
 import type { MemoryScopeFilter } from '@/api'
 import type { Memory } from '@/types'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/stores/appStore'
+import { getErrorMessage } from '@/lib/errors'
 import {
   Plus,
   Edit2,
@@ -18,6 +20,23 @@ import {
 
 type MemoryCreateScope = 'character' | 'session' | 'global'
 
+type MemoryDuplicateConflict = {
+  message: string
+  memory_id: string
+  enabled: boolean
+  category: string
+  scope: MemoryCreateScope
+}
+
+const parseDuplicateConflict = (error: unknown): MemoryDuplicateConflict | null => {
+  if (!axios.isAxiosError(error) || error.response?.status !== 409) return null
+  const detail = error.response.data?.detail
+  if (!detail || detail.code !== 'memory_duplicate') return null
+  if (typeof detail.memory_id !== 'string' || typeof detail.message !== 'string') return null
+  if (!['global', 'character', 'session'].includes(detail.scope)) return null
+  return detail as MemoryDuplicateConflict
+}
+
 const categoryLabels: Record<string, string> = {
   general: '通用',
   fact: '事实',
@@ -25,6 +44,8 @@ const categoryLabels: Record<string, string> = {
   event: '事件',
   preference: '偏好',
   pending: '待处理',
+  definition: '定义',
+  user_fact: '事实',
 }
 
 export default function MemoryPage({ embedded = false }: { embedded?: boolean }) {
@@ -39,6 +60,9 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingMemory, setEditingMemory] = useState<Memory | null>(null)
   const [scope, setScope] = useState<MemoryCreateScope>('character')
+  const [duplicateConflict, setDuplicateConflict] = useState<MemoryDuplicateConflict | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [highlightMemoryId, setHighlightMemoryId] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     category: 'general',
     content: '',
@@ -47,7 +71,7 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
     enabled: true,
   })
 
-  const categories = ['general', 'fact', 'relationship', 'event', 'preference', 'pending']
+  const categories = ['general', 'fact', 'preference', 'relationship', 'definition', 'event', 'pending']
 
   useEffect(() => {
     if (scopeFilter === 'session' && !currentSession) setScopeFilter('effective')
@@ -58,6 +82,17 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
     const timer = window.setTimeout(() => { void loadMemories() }, 250)
     return () => window.clearTimeout(timer)
   }, [search, categoryFilter, scopeFilter, selectedCharacter?.id, currentSession?.id])
+
+  useEffect(() => {
+    if (!highlightMemoryId || !memories.some((memory) => memory.id === highlightMemoryId)) return
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(`memory-${highlightMemoryId}`)?.scrollIntoView?.({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [highlightMemoryId, memories])
 
   const loadMemories = async () => {
     setLoading(true)
@@ -82,6 +117,7 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
 
   const openAddModal = () => {
     setEditingMemory(null)
+    setDuplicateConflict(null)
     setScope(currentSession ? 'session' : selectedCharacter ? 'character' : 'global')
     setFormData({
       category: 'general',
@@ -95,9 +131,10 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
 
   const openEditModal = (mem: Memory) => {
     setEditingMemory(mem)
+    setDuplicateConflict(null)
     setScope(mem.session_id ? 'session' : mem.character_id ? 'character' : 'global')
     setFormData({
-      category: mem.category,
+      category: mem.category === 'user_fact' ? 'fact' : mem.category,
       content: mem.content,
       importance: mem.importance,
       keywords: mem.keywords,
@@ -106,16 +143,22 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
     setShowAddModal(true)
   }
 
-  const handleSave = async () => {
+  const handleSave = async (allowDuplicate = false) => {
+    const content = formData.content.trim()
+    if (!content || saving) return
+    setSaving(true)
     try {
-      const content = formData.content.trim()
-      if (!content) return
       if (editingMemory) {
-        await updateMemory(editingMemory.id, { ...formData, content })
+        await updateMemory(editingMemory.id, {
+          ...formData,
+          content,
+          allow_duplicate: allowDuplicate,
+        })
       } else {
         await createMemory({
           ...formData,
           content,
+          allow_duplicate: allowDuplicate,
           character_id:
             scope === 'global'
               ? null
@@ -125,11 +168,29 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
           session_id: scope === 'session' ? currentSession?.id ?? null : null,
         })
       }
+      setDuplicateConflict(null)
       setShowAddModal(false)
-      loadMemories()
-    } catch (err) {
-      alert('保存失败')
+      await loadMemories()
+    } catch (error) {
+      const conflict = parseDuplicateConflict(error)
+      if (conflict) {
+        setDuplicateConflict(conflict)
+      } else {
+        alert(getErrorMessage(error, '保存失败'))
+      }
+    } finally {
+      setSaving(false)
     }
+  }
+
+  const viewDuplicateMemory = () => {
+    if (!duplicateConflict) return
+    setShowAddModal(false)
+    setScopeFilter(duplicateConflict.scope)
+    setCategoryFilter(duplicateConflict.category)
+    setSearch(formData.content.trim())
+    setHighlightMemoryId(duplicateConflict.memory_id)
+    setDuplicateConflict(null)
   }
 
   const handleDelete = async (id: string) => {
@@ -225,7 +286,8 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
               {memories.map((mem, idx) => (
                 <div
                   key={mem.id}
-                  className="card-parchment flex items-start gap-3.5 animate-slide-up"
+                  id={`memory-${mem.id}`}
+                  className={`card-parchment flex items-start gap-3.5 animate-slide-up ${highlightMemoryId === mem.id ? 'ring-2 ring-tavern-gold-500/70' : ''}`}
                   style={{ animationDelay: `${idx * 30}ms` }}
                 >
                   <button
@@ -265,12 +327,14 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
                     <button
                       onClick={() => openEditModal(mem)}
                       className="btn-icon p-1.5"
+                      aria-label="编辑记忆"
                     >
                       <Edit2 size={14} />
                     </button>
                     <button
                       onClick={() => handleDelete(mem.id)}
                       className="btn-icon p-1.5 hover:text-tavern-rose-400"
+                      aria-label="删除记忆"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -302,7 +366,7 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
               {!editingMemory ? (
                 <div>
                   <label htmlFor="memory_scope" className="block text-xs text-tavern-text-secondary mb-1.5 font-medium">作用范围</label>
-                  <select id="memory_scope" value={scope} onChange={(event) => setScope(event.target.value as MemoryCreateScope)} className="input">
+                  <select id="memory_scope" value={scope} onChange={(event) => { setScope(event.target.value as MemoryCreateScope); setDuplicateConflict(null) }} className="input">
                     {currentSession ? <option value="session">当前会话（最精确）</option> : null}
                     {selectedCharacter ? <option value="character">当前角色</option> : null}
                     <option value="global">所有角色（谨慎使用）</option>
@@ -314,7 +378,7 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
                 <select
                   id="memory_category"
                   value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, category: e.target.value }); setDuplicateConflict(null) }}
                   className="input"
                 >
                   {categories.map((c) => (
@@ -330,7 +394,7 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
                 <textarea
                   id="memory_content"
                   value={formData.content}
-                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, content: e.target.value }); setDuplicateConflict(null) }}
                   className="textarea h-24"
                   placeholder="输入记忆内容..."
                 />
@@ -378,17 +442,31 @@ export default function MemoryPage({ embedded = false }: { embedded?: boolean })
               </div>
             </div>
 
-            <div className="px-5 py-4 border-t border-tavern-border-subtle flex justify-end gap-2.5">
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="btn btn-secondary"
-              >
-                取消
-              </button>
-              <button onClick={handleSave} className="btn btn-primary">
-                保存
-              </button>
-            </div>
+            {duplicateConflict ? (
+              <div className="px-5 py-4 border-t border-tavern-border-subtle space-y-3">
+                <div className="rounded-xl border border-tavern-gold-700/50 bg-tavern-gold-950/30 px-4 py-3">
+                  <p className="text-sm text-tavern-text-primary">{duplicateConflict.message}</p>
+                  <p className="mt-1 text-xs text-tavern-text-muted">系统没有删除或修改已有记忆。你可以查看旧记录，或明确保留一条完全相同的新记录。</p>
+                </div>
+                <div className="flex justify-end gap-2.5 flex-wrap">
+                  <button onClick={() => { setDuplicateConflict(null); setShowAddModal(false) }} className="btn btn-secondary">取消</button>
+                  <button onClick={viewDuplicateMemory} className="btn btn-secondary">查看已有记忆</button>
+                  <button onClick={() => void handleSave(true)} disabled={saving} className="btn btn-primary">仍然保存</button>
+                </div>
+              </div>
+            ) : (
+              <div className="px-5 py-4 border-t border-tavern-border-subtle flex justify-end gap-2.5">
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="btn btn-secondary"
+                >
+                  取消
+                </button>
+                <button onClick={() => void handleSave()} disabled={saving} className="btn btn-primary">
+                  {saving ? '保存中...' : '保存'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

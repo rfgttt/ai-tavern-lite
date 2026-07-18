@@ -201,6 +201,7 @@ export const clearDiagnosticsLogs = () =>
 
 // Memory
 export type MemoryScopeFilter = 'effective' | 'session' | 'character' | 'global'
+export type MemoryWriteInput = Partial<Memory> & { allow_duplicate?: boolean }
 
 export const getMemories = (params?: {
   character_id?: string
@@ -209,9 +210,9 @@ export const getMemories = (params?: {
   category?: string
   search?: string
 }) => api.get<Memory[]>('/memories', { params })
-export const createMemory = (data: Partial<Memory>) =>
+export const createMemory = (data: MemoryWriteInput) =>
   api.post<Memory>('/memories', data)
-export const updateMemory = (id: string, data: Partial<Memory>) =>
+export const updateMemory = (id: string, data: MemoryWriteInput) =>
   api.put<Memory>(`/memories/${id}`, data)
 export const deleteMemory = (id: string) => api.delete(`/memories/${id}`)
 

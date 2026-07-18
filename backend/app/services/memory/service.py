@@ -1,3 +1,5 @@
+import threading
+import unicodedata
 from typing import List, Optional, Tuple
 
 from sqlalchemy import and_, or_
@@ -7,8 +9,44 @@ from ...core.logging import logger
 from ...db.models import Character, ChatSession, Memory
 
 
+class MemoryDuplicateError(Exception):
+    """Raised when a manual memory write matches an existing exact record."""
+
+    def __init__(self, memory: Memory):
+        self.memory = memory
+        state = "已禁用" if not memory.enabled else "已启用"
+        super().__init__(f"当前作用域和分类中已存在内容相同的记忆（{state}）")
+
+
 class MemoryService:
     VALID_SCOPES = {"global", "character", "session", "effective"}
+    CATEGORY_ALIASES = {"user_fact": "fact"}
+    AUTO_DEDUPE_CATEGORIES = {"fact", "preference", "relationship", "definition"}
+    _write_lock = threading.RLock()
+
+    @staticmethod
+    def normalize_category(category: str) -> str:
+        """Normalize known legacy category aliases without changing custom labels."""
+        cleaned = (category or "general").strip() or "general"
+        return MemoryService.CATEGORY_ALIASES.get(cleaned, cleaned)
+
+    @staticmethod
+    def category_filter_values(category: str) -> set[str]:
+        """Return stored category values equivalent to a requested category."""
+        normalized = MemoryService.normalize_category(category)
+        values = {normalized}
+        values.update(
+            alias
+            for alias, canonical in MemoryService.CATEGORY_ALIASES.items()
+            if canonical == normalized
+        )
+        return values
+
+    @staticmethod
+    def normalize_content(content: str) -> str:
+        """Apply only non-semantic normalization used for exact duplicate checks."""
+        normalized_newlines = (content or "").replace("\r\n", "\n").replace("\r", "\n")
+        return unicodedata.normalize("NFC", normalized_newlines).strip()
 
     @staticmethod
     def resolve_scope_ids(
@@ -47,6 +85,17 @@ class MemoryService:
             return character_id, None
 
         return None, None
+
+    @staticmethod
+    def scope_name(
+        character_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> str:
+        if session_id:
+            return "session"
+        if character_id:
+            return "character"
+        return "global"
 
     @staticmethod
     def scope_filter(
@@ -90,6 +139,41 @@ class MemoryService:
         if session_id:
             effective_scopes.append(Memory.session_id == session_id)
         return or_(*effective_scopes)
+
+    @staticmethod
+    def find_exact_duplicate(
+        db: Session,
+        *,
+        content: str,
+        category: str,
+        character_id: Optional[str],
+        session_id: Optional[str],
+        exclude_memory_id: Optional[str] = None,
+    ) -> Optional[Memory]:
+        """Find an exact duplicate within one semantic memory scope.
+
+        Existing disabled rows and legacy ``user_fact`` rows participate. Internal
+        whitespace, punctuation, casing and wording are intentionally preserved.
+        """
+        normalized_content = MemoryService.normalize_content(content)
+        normalized_category = MemoryService.normalize_category(category)
+        scope = MemoryService.scope_name(character_id, session_id)
+        query = db.query(Memory).filter(
+            MemoryService.scope_filter(
+                scope,
+                character_id=character_id,
+                session_id=session_id,
+            )
+        )
+        if exclude_memory_id:
+            query = query.filter(Memory.id != exclude_memory_id)
+
+        for candidate in query.all():
+            if MemoryService.normalize_category(candidate.category) != normalized_category:
+                continue
+            if MemoryService.normalize_content(candidate.content) == normalized_content:
+                return candidate
+        return None
 
     @staticmethod
     def get_relevant_memories(
@@ -147,7 +231,8 @@ class MemoryService:
 
         parts = ["【长期记忆】"]
         for mem in memories:
-            parts.append(f"- [{mem.category}] {mem.content.strip()}")
+            category = MemoryService.normalize_category(mem.category)
+            parts.append(f"- [{category}] {mem.content.strip()}")
 
         return "\n".join(parts)
 
@@ -161,12 +246,12 @@ class MemoryService:
         text = user_message.strip()
 
         fact_patterns = [
-            ("我是", "user_fact"),
-            ("我叫", "user_fact"),
+            ("我是", "fact"),
+            ("我叫", "fact"),
             ("我喜欢", "preference"),
             ("我讨厌", "preference"),
-            ("我住在", "user_fact"),
-            ("我的", "user_fact"),
+            ("我住在", "fact"),
+            ("我的", "fact"),
         ]
 
         for pattern, category in fact_patterns:
@@ -192,24 +277,93 @@ class MemoryService:
         keywords: str = "",
         character_id: Optional[str] = None,
         session_id: Optional[str] = None,
+        *,
+        allow_duplicate: bool = False,
+        skip_duplicate: bool = False,
     ) -> Memory:
-        """Add a memory after validating and normalizing its scope."""
-        character_id, session_id = MemoryService.resolve_scope_ids(
-            db,
-            character_id=character_id,
-            session_id=session_id,
-        )
-        memory = Memory(
-            character_id=character_id,
-            session_id=session_id,
-            category=category,
-            content=content,
-            importance=importance,
-            keywords=keywords,
-            enabled=True,
-        )
-        db.add(memory)
-        db.commit()
-        db.refresh(memory)
-        logger.info("Memory added: %s - %s...", category, content[:50])
-        return memory
+        """Add a memory after validating its scope and exact duplicate identity."""
+        with MemoryService._write_lock:
+            character_id, session_id = MemoryService.resolve_scope_ids(
+                db,
+                character_id=character_id,
+                session_id=session_id,
+            )
+            normalized_content = MemoryService.normalize_content(content)
+            if not normalized_content:
+                raise ValueError("记忆内容不能为空")
+            normalized_category = MemoryService.normalize_category(category)
+
+            duplicate = MemoryService.find_exact_duplicate(
+                db,
+                content=normalized_content,
+                category=normalized_category,
+                character_id=character_id,
+                session_id=session_id,
+            )
+            if duplicate:
+                if skip_duplicate:
+                    logger.debug("Duplicate auto-extracted memory skipped: %s", duplicate.id)
+                    return duplicate
+                if not allow_duplicate:
+                    raise MemoryDuplicateError(duplicate)
+
+            memory = Memory(
+                character_id=character_id,
+                session_id=session_id,
+                category=normalized_category,
+                content=normalized_content,
+                importance=importance,
+                keywords=keywords,
+                enabled=True,
+            )
+            db.add(memory)
+            db.commit()
+            db.refresh(memory)
+            logger.info("Memory added: %s - %s...", normalized_category, normalized_content[:50])
+            return memory
+
+    @staticmethod
+    def update_memory(
+        db: Session,
+        memory: Memory,
+        update_data: dict,
+        *,
+        allow_duplicate: bool = False,
+    ) -> Memory:
+        """Update a memory without changing scope or silently creating duplicates."""
+        with MemoryService._write_lock:
+            candidate_content = MemoryService.normalize_content(
+                update_data.get("content", memory.content)
+            )
+            if not candidate_content:
+                raise ValueError("记忆内容不能为空")
+            candidate_category = MemoryService.normalize_category(
+                update_data.get("category", memory.category)
+            )
+
+            identity_changed = (
+                candidate_content != MemoryService.normalize_content(memory.content)
+                or candidate_category != MemoryService.normalize_category(memory.category)
+            )
+            if identity_changed:
+                duplicate = MemoryService.find_exact_duplicate(
+                    db,
+                    content=candidate_content,
+                    category=candidate_category,
+                    character_id=memory.character_id,
+                    session_id=memory.session_id,
+                    exclude_memory_id=memory.id,
+                )
+                if duplicate and not allow_duplicate:
+                    raise MemoryDuplicateError(duplicate)
+
+            if "content" in update_data:
+                update_data["content"] = candidate_content
+            if "category" in update_data:
+                update_data["category"] = candidate_category
+            for field, value in update_data.items():
+                setattr(memory, field, value)
+
+            db.commit()
+            db.refresh(memory)
+            return memory
