@@ -178,3 +178,110 @@ def test_large_session_history_remains_complete_and_ordered(db_with_session):
     assert len(payload) == 1002
     assert [item["sequence"] for item in payload] == list(range(1002))
     assert payload[-1]["content"] == "长会话消息 1001"
+
+
+def add_paginated_messages(db, session_id: str, start: int, stop: int) -> None:
+    db.bulk_save_objects([
+        Message(
+            session_id=session_id,
+            role="user" if sequence % 2 else "assistant",
+            content=f"分页消息 {sequence}",
+            sequence=sequence,
+            generation_status="complete",
+        )
+        for sequence in range(start, stop)
+    ])
+    db.commit()
+
+
+def test_message_page_defaults_to_latest_fifty_in_chronological_order(db_with_session):
+    db, _char, session = db_with_session
+    add_paginated_messages(db, session.id, 2, 124)
+
+    with make_client(db) as client:
+        response = client.get(f"/api/sessions/{session.id}/messages/page")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["sequence"] for item in payload["items"]] == list(range(74, 124))
+    assert payload["has_more"] is True
+    assert payload["oldest_sequence"] == 74
+    assert payload["newest_sequence"] == 123
+
+
+def test_message_page_uses_exclusive_sequence_cursor(db_with_session):
+    db, _char, session = db_with_session
+    add_paginated_messages(db, session.id, 2, 17)
+    with make_client(db) as client:
+        latest = client.get(f"/api/sessions/{session.id}/messages/page?limit=5").json()
+        earlier = client.get(
+            f"/api/sessions/{session.id}/messages/page",
+            params={"before_sequence": latest["oldest_sequence"], "limit": 5},
+        ).json()
+
+    assert [item["sequence"] for item in latest["items"]] == [12, 13, 14, 15, 16]
+    assert [item["sequence"] for item in earlier["items"]] == [7, 8, 9, 10, 11]
+    assert set(item["sequence"] for item in latest["items"]).isdisjoint(
+        item["sequence"] for item in earlier["items"]
+    )
+    assert earlier["has_more"] is True
+
+
+def test_message_pages_tolerate_sequence_gaps_without_duplicates_or_loss(db_with_session):
+    db, _char, session = db_with_session
+    add_paginated_messages(db, session.id, 2, 15)
+    db.query(Message).filter(
+        Message.session_id == session.id,
+        Message.sequence.in_([5, 9]),
+    ).delete(synchronize_session=False)
+    db.commit()
+
+    expected = {
+        row.sequence
+        for row in db.query(Message).filter(Message.session_id == session.id).all()
+    }
+    cursor = None
+    seen: list[int] = []
+
+    with make_client(db) as client:
+        while True:
+            params = {"limit": 4}
+            if cursor is not None:
+                params["before_sequence"] = cursor
+            response = client.get(f"/api/sessions/{session.id}/messages/page", params=params)
+            assert response.status_code == 200
+            page = response.json()
+            sequences = [item["sequence"] for item in page["items"]]
+            assert sequences == sorted(sequences)
+            assert not set(sequences).intersection(seen)
+            seen.extend(sequences)
+            if not page["has_more"]:
+                break
+            cursor = page["oldest_sequence"]
+            assert cursor is not None
+
+    assert set(seen) == expected
+    assert len(seen) == len(expected)
+
+
+def test_message_page_keeps_legacy_full_history_endpoint_unchanged(db_with_session):
+    db, _char, session = db_with_session
+    add_paginated_messages(db, session.id, 2, 72)
+    with make_client(db) as client:
+        legacy = client.get(f"/api/sessions/{session.id}/messages")
+        paged = client.get(f"/api/sessions/{session.id}/messages/page")
+
+    assert legacy.status_code == 200
+    assert [item["sequence"] for item in legacy.json()] == list(range(72))
+    assert paged.status_code == 200
+    assert [item["sequence"] for item in paged.json()["items"]] == list(range(22, 72))
+
+
+def test_message_page_validates_cursor_limit_and_session(db_with_session):
+    db, _char, session = db_with_session
+    with make_client(db) as client:
+        assert client.get(f"/api/sessions/{session.id}/messages/page?limit=0").status_code == 422
+        assert client.get(f"/api/sessions/{session.id}/messages/page?limit=201").status_code == 422
+        assert client.get(f"/api/sessions/{session.id}/messages/page?before_sequence=-1").status_code == 422
+        assert client.get("/api/sessions/missing/messages/page").status_code == 404
+

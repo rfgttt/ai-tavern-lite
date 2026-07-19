@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
@@ -8,7 +8,7 @@ from ..db.session import get_db
 from ..db.models import ChatSession, Message, Character, Memory, TurnSnapshot, Persona, CharacterGroup, GroupMember
 from ..schemas import (
     ChatSessionResponse, ChatSessionCreate, ChatSessionUpdate,
-    MessageResponse, MessageCreate, MessageUpdate
+    MessageResponse, MessageCreate, MessageUpdate, MessagePageResponse
 )
 from ..services.character_parser.parser import replace_template_vars
 from ..services.settings_service import SettingsService
@@ -193,6 +193,39 @@ def get_messages(session_id: str, db: Session = Depends(get_db)):
         Message.session_id == session_id
     ).order_by(Message.sequence.asc()).all()
     return messages
+
+
+@router.get("/sessions/{session_id}/messages/page", response_model=MessagePageResponse)
+def get_message_page(
+    session_id: str,
+    before_sequence: int | None = Query(default=None, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Return one reverse-cursor page while preserving chronological order.
+
+    ``before_sequence`` is exclusive. The endpoint queries newest-first for
+    efficiency, reads one extra row to determine ``has_more``, then reverses
+    the selected rows so callers can render them oldest-to-newest.
+    """
+    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    query = db.query(Message).filter(Message.session_id == session_id)
+    if before_sequence is not None:
+        query = query.filter(Message.sequence < before_sequence)
+
+    newest_first = query.order_by(Message.sequence.desc()).limit(limit + 1).all()
+    has_more = len(newest_first) > limit
+    page_items = list(reversed(newest_first[:limit]))
+
+    return MessagePageResponse(
+        items=page_items,
+        has_more=has_more,
+        oldest_sequence=page_items[0].sequence if page_items else None,
+        newest_sequence=page_items[-1].sequence if page_items else None,
+    )
 
 
 @router.post("/sessions/{session_id}/messages", response_model=MessageResponse)

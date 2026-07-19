@@ -262,6 +262,13 @@ class MessageResponse(MessageBase):
         return data
 
 
+class MessagePageResponse(BaseModel):
+    items: List[MessageResponse] = Field(default_factory=list)
+    has_more: bool = False
+    oldest_sequence: Optional[int] = None
+    newest_sequence: Optional[int] = None
+
+
 class MemoryBase(BaseModel):
     category: str = "general"
     content: str = ""

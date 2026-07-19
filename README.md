@@ -11,7 +11,7 @@ AI Tavern Lite 使用 React、TypeScript、FastAPI、SQLAlchemy 和 SQLite 构�
 截至 2026 年 7 月：
 
 ```text
-后端自动测试：230 collected（Windows 预计 230 passed；非 Windows 跳过 1 项 DPAPI 测试）
+后端自动测试：235 collected（Windows 预计 235 passed；非 Windows 跳过 1 项 DPAPI 测试）
 前端自动测试：57 passed
 TypeScript 检查：通过
 Vite 生产构建：通过
@@ -40,6 +40,7 @@ Alembic 版本：20260717_0001
 - 自定义初始状态 JSON，并拒绝危险路径和超限内容；
 - SSE 流式回复、停止生成、重新生成和 Prompt 预览；
 - 每个会话独立保存消息、运行时状态、时间线、草稿和滚动位置；
+- 后端提供基于消息序号的游标分页接口，同时保留旧完整历史接口供当前前端兼容；
 - 剧情分支、状态快照和回滚；
 - 将正文与隐藏状态补丁分离，不执行角色卡携带的任意 JavaScript。
 
@@ -188,7 +189,7 @@ Set-Location "D:\AI-Tavern-Lite"
 - SQLite、停止生成状态和本地缓存尚未针对多实例水平扩展；
 - 未实现 TTS、语音识别、图片生成和向量数据库；
 - 不保证任意第三方 SillyTavern/Risu 脚本等价运行；
-- 1002 条消息已经通过完整性测试，但数千至上万条消息的虚拟列表属于后续性能工作；
+- 1002 条消息已经通过完整性测试，后端已具备游标分页基础；前端向上加载和虚拟列表仍属于后续性能工作；
 - 仓库包含生产导向配置，但公网部署不属于当前作品集验收范围。
 
 ## 作品集资料
