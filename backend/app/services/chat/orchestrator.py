@@ -26,18 +26,22 @@ class ChatOrchestrator:
         *,
         provider_factory: ProviderFactory,
         active_streams: MutableMapping[str, object],
+        active_sessions: MutableMapping[str, str],
         max_concurrent_generations: int,
     ) -> None:
         self.db = db
         self.active_streams = active_streams
+        self.active_sessions = active_sessions
         self.max_concurrent_generations = max_concurrent_generations
         self.preparation = ChatPreparationService(
             db,
             provider_factory=provider_factory,
         )
-        self.runner = ChatStreamRunner(active_streams)
+        self.runner = ChatStreamRunner(active_streams, active_sessions)
 
     def prepare_stream(self, request: ChatRequest) -> PreparedChatStream:
+        if request.session_id in self.active_sessions:
+            raise ChatServiceError(409, "当前会话已有生成任务，请等待完成或先停止生成")
         if len(self.active_streams) >= self.max_concurrent_generations:
             raise ChatServiceError(
                 429,
@@ -47,6 +51,7 @@ class ChatOrchestrator:
 
         context = self.preparation.prepare(request)
         self.active_streams[context.assistant_message_id] = context.provider
+        self.active_sessions[context.session_id] = context.assistant_message_id
         logger.info(
             "Starting chat stream request_id=%s session=%s message=%s provider=%s model=%s mock=%s",
             context.request_id,

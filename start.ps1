@@ -21,7 +21,7 @@ if (-not (Test-Path $pythonExe)) {
     exit 1
 }
 
-if (-not (Test-Path "frontend\dist\index.html")) {
+if (-not (Test-Path (Join-Path $PSScriptRoot "frontend\dist\index.html"))) {
     Write-Host "[警告] 未找到前端构建产物，将以 API-only 模式启动。" -ForegroundColor Yellow
     Write-Host ""
 }

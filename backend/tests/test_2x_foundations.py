@@ -191,3 +191,42 @@ def test_session_rejects_primary_character_outside_selected_group(test_db):
 
     assert response.status_code == 400
     assert response.json()['detail'] == '主角色不属于所选群组'
+
+
+def test_branch_from_historical_message_uses_anchor_snapshot_state(db_with_session):
+    from app.db.models import SessionState
+
+    db, _, session = db_with_session
+    assistant = (
+        db.query(Message)
+        .filter(Message.session_id == session.id, Message.role == 'assistant')
+        .order_by(Message.sequence.asc())
+        .first()
+    )
+    db.add(TurnSnapshot(
+        session_id=session.id,
+        message_id=assistant.id,
+        state_before_json='{}',
+        patch_json='[]',
+        state_after_json=json.dumps({'story': {'chapter': 1}}, ensure_ascii=False),
+        events_json='[]', choices_json='[]', dice_json='[]', battle_checks_json='[]',
+        battle_json='null', triggered_lorebook_json='[]', rejected_patch_json='[]', parser_errors_json='[]',
+    ))
+    from app.services.runtime.session_service import ensure_session_state
+    runtime = ensure_session_state(db, session)
+    runtime.state_json = json.dumps({'story': {'chapter': 9}}, ensure_ascii=False)
+    runtime.revision = 9
+    db.commit()
+
+    client = _client(db)
+    saved = client.post(
+        f'/api/sessions/{session.id}/branches',
+        json={'title': '历史锚点', 'parent_message_id': assistant.id},
+    )
+    assert saved.status_code == 200
+
+    branch_id = saved.json()['id']
+    restored = client.post(f'/api/sessions/{session.id}/branches/{branch_id}/restore')
+    assert restored.status_code == 200
+    state = client.get(f'/api/sessions/{session.id}/runtime').json()['state']
+    assert state == {'story': {'chapter': 1}}

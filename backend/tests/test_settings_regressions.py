@@ -77,3 +77,51 @@ def test_settings_update_logs_once(test_db, monkeypatch):
 
     assert response.status_code == 200
     assert calls.count("Settings updated") == 1
+
+
+def test_connection_uses_custom_headers(test_db, monkeypatch):
+    captured = {}
+
+    class Provider:
+        async def test_connection(self, custom_headers=None):
+            captured['headers'] = custom_headers
+            return True, 'ok'
+
+    monkeypatch.setattr('app.api.settings.get_provider', lambda **_kwargs: Provider())
+    SettingsService.update_settings(
+        test_db,
+        {
+            'mock_llm': False,
+            'base_url': 'https://example.com/custom/openai',
+            'api_key': 'secret',
+            'model': 'model',
+            'custom_headers': {'X-Route': 'alpha'},
+        },
+    )
+    monkeypatch.setattr('app.api.settings._validate_base_url', lambda _url: None)
+    response = make_client(test_db).post('/api/settings/test-connection')
+    assert response.status_code == 200, response.text
+    assert captured['headers'] == {'X-Route': 'alpha'}
+
+
+def test_settings_database_values_roll_back_when_commit_fails(test_db, monkeypatch):
+    SettingsService.update_settings(test_db, {'username': 'before'})
+    original_commit = test_db.commit
+    calls = {'count': 0}
+
+    def fail_once():
+        calls['count'] += 1
+        if calls['count'] == 1:
+            raise RuntimeError('commit failed')
+        return original_commit()
+
+    monkeypatch.setattr(test_db, 'commit', fail_once)
+    try:
+        SettingsService.update_settings(test_db, {'username': 'after', 'model': 'new-model'})
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError('expected commit failure')
+
+    test_db.expire_all()
+    assert SettingsService.get_non_secret_settings(test_db)['username'] == 'before'

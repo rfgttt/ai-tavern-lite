@@ -17,6 +17,7 @@ router = APIRouter(tags=["chat"])
 
 # Kept at the API boundary for stop requests and backwards-compatible tests.
 _active_streams: dict[str, object] = {}
+_active_sessions: dict[str, str] = {}
 
 
 def _orchestrator(db: Session) -> ChatOrchestrator:
@@ -24,6 +25,7 @@ def _orchestrator(db: Session) -> ChatOrchestrator:
         db,
         provider_factory=get_provider,
         active_streams=_active_streams,
+        active_sessions=_active_sessions,
         max_concurrent_generations=runtime_settings.max_concurrent_generations,
     )
 

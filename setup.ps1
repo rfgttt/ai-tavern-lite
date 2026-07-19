@@ -168,8 +168,8 @@ Write-Host "  安装完成！" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "启动方式:"
-Write-Host "  .\start.ps1  启动正式版"
-Write-Host "  .\start-dev.bat  启动开发版"
+Write-Host "  双击 start.bat  启动正式版（推荐）"
+Write-Host "  双击 start-dev.bat  启动开发版"
 Write-Host ""
 Write-Host "默认使用 Mock 模式，无需 API Key 即可体验"
 Write-Host ""

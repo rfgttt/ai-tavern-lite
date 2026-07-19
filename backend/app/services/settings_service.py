@@ -79,13 +79,14 @@ class SettingsService:
         return setting.value if setting else None
 
     @staticmethod
-    def _set_setting(db: Session, key: str, value: str) -> None:
+    def _set_setting(db: Session, key: str, value: str, *, commit: bool = True) -> None:
         setting = db.query(AppSetting).filter(AppSetting.key == key).first()
         if setting:
             setting.value = value
         else:
             db.add(AppSetting(key=key, value=value))
-        db.commit()
+        if commit:
+            db.commit()
 
     @classmethod
     def _delete_setting(cls, db: Session, key: str, *, scrub_sqlite: bool = False) -> bool:
@@ -214,46 +215,73 @@ class SettingsService:
 
     @classmethod
     def update_settings(cls, db: Session, updates: Dict[str, Any]) -> Dict[str, Any]:
-        """Update settings. Empty API key means keep the existing secure value."""
+        """Atomically update database settings and roll back secure-key changes on failure."""
         requested_api_key = updates.get("api_key")
         wants_api_key_change = bool(updates.get("clear_api_key")) or bool(requested_api_key)
         if wants_api_key_change and cls.api_key_is_environment_managed():
             raise ApiKeyStorageError("API Key 由服务器环境变量管理，不能在网页中替换或清除")
 
-        if updates.get("clear_api_key"):
-            if cls.API_KEY_STORE.available:
-                cls.API_KEY_STORE.clear()
-                cls._delete_setting(db, "api_key", scrub_sqlite=True)
-            else:
-                cls._set_setting(db, "api_key", "")
+        old_secret = None
+        old_secret_readable = True
+        secret_changed = False
+        if wants_api_key_change and cls.API_KEY_STORE.available:
+            try:
+                old_secret = cls.API_KEY_STORE.read()
+            except ApiKeyStorageError:
+                if updates.get("clear_api_key"):
+                    old_secret_readable = False
+                else:
+                    raise
 
-        for key, value in updates.items():
-            if key == "clear_api_key" or key not in cls.DEFAULTS:
-                continue
-            if key == "api_key":
-                if value is None or value == "":
+        try:
+            for key, value in updates.items():
+                if key in {"clear_api_key", "api_key"} or key not in cls.DEFAULTS:
                     continue
-                normalized = str(value)
+                if isinstance(value, bool):
+                    str_val = "true" if value else "false"
+                elif isinstance(value, (int, float)):
+                    str_val = str(value)
+                elif isinstance(value, dict):
+                    str_val = json.dumps(_sanitize_custom_headers(value), ensure_ascii=False)
+                else:
+                    str_val = str(value) if value is not None else ""
+                cls._set_setting(db, key, str_val, commit=False)
+
+            if updates.get("clear_api_key"):
+                if cls.API_KEY_STORE.available:
+                    cls.API_KEY_STORE.clear()
+                    secret_changed = True
+                    setting = db.query(AppSetting).filter(AppSetting.key == "api_key").first()
+                    if setting is not None:
+                        db.delete(setting)
+                else:
+                    cls._set_setting(db, "api_key", "", commit=False)
+            elif requested_api_key:
+                normalized = str(requested_api_key)
                 if cls.API_KEY_STORE.available:
                     cls.API_KEY_STORE.write(normalized)
+                    secret_changed = True
                     verified = cls.API_KEY_STORE.read()
                     if not hmac.compare_digest(verified, normalized):
                         raise ApiKeyStorageError("API Key 写入 Windows DPAPI 后校验失败")
-                    cls._delete_setting(db, "api_key", scrub_sqlite=True)
+                    setting = db.query(AppSetting).filter(AppSetting.key == "api_key").first()
+                    if setting is not None:
+                        db.delete(setting)
                 else:
-                    cls._set_setting(db, "api_key", normalized)
-                continue
+                    cls._set_setting(db, "api_key", normalized, commit=False)
 
-            if isinstance(value, bool):
-                str_val = "true" if value else "false"
-            elif isinstance(value, (int, float)):
-                str_val = str(value)
-            elif isinstance(value, dict):
-                str_val = json.dumps(value, ensure_ascii=False)
-            else:
-                str_val = str(value) if value is not None else ""
-
-            cls._set_setting(db, key, str_val)
+            db.commit()
+        except Exception:
+            db.rollback()
+            if secret_changed and cls.API_KEY_STORE.available and old_secret_readable:
+                try:
+                    if old_secret:
+                        cls.API_KEY_STORE.write(old_secret)
+                    else:
+                        cls.API_KEY_STORE.clear()
+                except Exception as restore_error:
+                    logger.error("Failed to restore API key after settings rollback: %s", restore_error)
+            raise
 
         logger.info("Settings updated")
         return cls.get_all_settings(db)

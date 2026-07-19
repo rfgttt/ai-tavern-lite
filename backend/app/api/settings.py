@@ -99,5 +99,7 @@ async def test_connection(update: SettingsUpdate | None = None, db: Session = De
         model=model,
     )
 
-    success, message = await provider.test_connection()
+    success, message = await provider.test_connection(
+        custom_headers=app_settings.get("custom_headers") or None,
+    )
     return ConnectionTestResult(success=success, message=message, model=model)

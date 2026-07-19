@@ -19,8 +19,13 @@ from .helpers import sanitize_error, sse
 class ChatStreamRunner:
     """Run one provider stream and persist the final durable turn."""
 
-    def __init__(self, active_streams: MutableMapping[str, object]) -> None:
+    def __init__(
+        self,
+        active_streams: MutableMapping[str, object],
+        active_sessions: MutableMapping[str, str],
+    ) -> None:
         self.active_streams = active_streams
+        self.active_sessions = active_sessions
 
     async def events(self, context: ChatStreamContext) -> AsyncIterator[str]:
         raw_content = ""
@@ -193,6 +198,8 @@ class ChatStreamRunner:
             yield "data: [DONE]\n\n"
         finally:
             self.active_streams.pop(context.assistant_message_id, None)
+            if self.active_sessions.get(context.session_id) == context.assistant_message_id:
+                self.active_sessions.pop(context.session_id, None)
 
     @staticmethod
     def _runtime_operations(parsed: Any, final_status: str) -> list[dict[str, Any]]:

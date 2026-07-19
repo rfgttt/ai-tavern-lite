@@ -87,13 +87,49 @@ def save_branch(session_id: str, data: BranchCreate, db: Session = Depends(get_d
         query = query.filter(Message.sequence <= parent.sequence)
     messages = query.order_by(Message.sequence.asc()).all()
     runtime = ensure_session_state(db, session)
+
+    branch_state_json = runtime.state_json or "{}"
+    branch_revision = runtime.revision or 0
+    if data.parent_message_id:
+        parent_snapshot = (
+            db.query(TurnSnapshot)
+            .filter(
+                TurnSnapshot.session_id == session_id,
+                TurnSnapshot.message_id == data.parent_message_id,
+            )
+            .first()
+        )
+        if parent_snapshot is not None:
+            branch_state_json = parent_snapshot.state_after_json or "{}"
+            branch_revision = parent.sequence + 1
+        else:
+            # User/system messages do not always own a snapshot. Use the latest
+            # durable assistant snapshot at or before the selected anchor.
+            snapshot_row = (
+                db.query(TurnSnapshot, Message)
+                .join(Message, Message.id == TurnSnapshot.message_id)
+                .filter(
+                    TurnSnapshot.session_id == session_id,
+                    Message.sequence <= parent.sequence,
+                )
+                .order_by(Message.sequence.desc())
+                .first()
+            )
+            if snapshot_row is not None:
+                snapshot, snapshot_message = snapshot_row
+                branch_state_json = snapshot.state_after_json or "{}"
+                branch_revision = snapshot_message.sequence + 1
+            else:
+                branch_state_json = runtime.initial_state_json or "{}"
+                branch_revision = 0
+
     branch = SessionBranch(
         session_id=session_id,
         title=data.title,
         parent_message_id=data.parent_message_id or (messages[-1].id if messages else ""),
         messages_json=json.dumps([_serialize_message(item) for item in messages], ensure_ascii=False),
-        runtime_state_json=runtime.state_json or "{}",
-        runtime_revision=runtime.revision or 0,
+        runtime_state_json=branch_state_json,
+        runtime_revision=branch_revision,
     )
     db.add(branch)
     db.commit()

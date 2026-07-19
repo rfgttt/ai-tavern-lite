@@ -155,6 +155,7 @@ async def _close_after_first_event(db, session_id: str):
         db,
         provider_factory=lambda **_kwargs: IdleProvider(),
         active_streams=active_streams,
+        active_sessions={},
         max_concurrent_generations=2,
     )
     prepared = orchestrator.prepare_stream(
@@ -182,3 +183,25 @@ def test_closing_stream_after_first_event_marks_message_stopped_and_cleans_regis
 
     assert assistant.generation_status == "stopped"
     assert active_streams == {}
+
+
+def test_same_session_rejects_second_active_generation(db_with_session, monkeypatch):
+    from app.services.chat import ChatOrchestrator, ChatServiceError
+    from app.schemas import ChatRequest
+
+    db, _character, session = db_with_session
+    active_streams = {}
+    active_sessions = {session.id: 'existing-message'}
+    orchestrator = ChatOrchestrator(
+        db,
+        provider_factory=lambda **_kwargs: IdleProvider(),
+        active_streams=active_streams,
+        active_sessions=active_sessions,
+        max_concurrent_generations=2,
+    )
+    try:
+        orchestrator.prepare_stream(ChatRequest(session_id=session.id, message='重复请求'))
+    except ChatServiceError as error:
+        assert error.status_code == 409
+    else:
+        raise AssertionError('same-session generation was not rejected')

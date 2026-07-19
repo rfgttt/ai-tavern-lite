@@ -11,8 +11,8 @@ AI Tavern Lite 使用 React、TypeScript、FastAPI、SQLAlchemy 和 SQLite 构�
 截至 2026 年 7 月：
 
 ```text
-后端自动测试：161 passed
-前端自动测试：36 passed
+后端自动测试：230 collected（Windows 预计 230 passed；非 Windows 跳过 1 项 DPAPI 测试）
+前端自动测试：57 passed
 TypeScript 检查：通过
 Vite 生产构建：通过
 Alembic 版本：20260717_0001

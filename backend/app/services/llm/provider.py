@@ -28,7 +28,7 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
-    async def test_connection(self) -> tuple[bool, str]:
+    async def test_connection(self, custom_headers: Optional[Dict[str, str]] = None) -> tuple[bool, str]:
         """Test if the connection works. Returns (success, message)."""
         pass
 
@@ -94,7 +94,7 @@ class MockLLMProvider(LLMProvider):
             yield char
             await asyncio.sleep(0.02)
 
-    async def test_connection(self) -> tuple[bool, str]:
+    async def test_connection(self, custom_headers: Optional[Dict[str, str]] = None) -> tuple[bool, str]:
         return True, "Mock 模式连接正常"
 
 
@@ -174,7 +174,7 @@ class OpenAICompatibleProvider(LLMProvider):
             logger.error(f"LLM request failed: {error_msg}")
             raise RuntimeError(error_msg) from e
 
-    async def test_connection(self) -> tuple[bool, str]:
+    async def test_connection(self, custom_headers: Optional[Dict[str, str]] = None) -> tuple[bool, str]:
         """Test connection with a minimal request."""
         client = self._get_client()
 
@@ -183,14 +183,19 @@ class OpenAICompatibleProvider(LLMProvider):
                 model=self.model,
                 messages=[{"role": "user", "content": "Hi"}],
                 max_tokens=5,
-                stream=False
+                stream=False,
+                **({"extra_headers": custom_headers} if custom_headers else {}),
             )
             return True, f"连接成功，模型: {self.model}"
         except Exception as e:
             error_msg = str(e)
             # Don't leak API key in error
-            if self.api_key and self.api_key in error_msg:
-                error_msg = error_msg.replace(self.api_key, "***")
+            secrets = [self.api_key]
+            if custom_headers:
+                secrets.extend(value for value in custom_headers.values() if isinstance(value, str))
+            for secret in secrets:
+                if secret and secret in error_msg:
+                    error_msg = error_msg.replace(secret, "***")
             return False, f"连接失败: {error_msg}"
 
 
@@ -221,9 +226,9 @@ def get_provider(
         allowed_hosts=settings.llm_allowed_host_items,
     )
 
-    # Normalize base_url - ensure it ends with /v1 if not present
-    if "/v1" not in base_url:
-        base_url = base_url.rstrip("/") + "/v1"
+    # Treat a custom OpenAI-compatible URL as authoritative. Presets may
+    # provide /v1 themselves; silently rewriting arbitrary gateways is unsafe.
+    base_url = base_url.rstrip("/")
 
     logger.info(f"Using OpenAI-compatible provider: {base_url}, model: {model}")
     return OpenAICompatibleProvider(
