@@ -276,6 +276,8 @@ class SettingsResponse(BaseModel):
     auto_memory_extraction: bool = False
     api_key_configured: bool = False
     api_key_masked: str = ""
+    api_key_storage: str = "database_legacy"
+    api_key_error: str = ""
     custom_headers: Dict[str, str] = Field(default_factory=dict)
     settings_writable: bool = True
     diagnostics_enabled: bool = True

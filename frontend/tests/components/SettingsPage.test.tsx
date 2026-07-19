@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as backupApi from '@/api'
 import SettingsPage from '@/pages/SettingsPage'
+import { useAppStore } from '@/stores/appStore'
+import { appSettingsFixture } from '../mocks/fixtures'
 import { renderWithRouter, resetAppStore } from '../testUtils'
 
 const currentStatus = {
@@ -72,4 +74,27 @@ describe('SettingsPage backup and restore', () => {
     expect(screen.getAllByText(/停止服务并重新启动/).length).toBeGreaterThan(0)
     expect(statusSpy).toHaveBeenCalledTimes(2)
   })
+  it('shows Windows DPAPI status and a recoverable secure-storage error', async () => {
+    const fetchSettings = vi.fn(async () => undefined)
+    useAppStore.setState({
+      settings: {
+        ...appSettingsFixture,
+        mock_llm: false,
+        api_key_configured: true,
+        api_key_masked: '••••••••1234',
+        api_key_storage: 'windows_dpapi',
+        api_key_error: 'API Key 无法用当前 Windows 用户解密；请清除后重新保存',
+      },
+      fetchSettings,
+    })
+    vi.spyOn(backupApi, 'getBackupStatus').mockResolvedValue({ data: currentStatus } as never)
+
+    renderWithRouter(<SettingsPage />, ['/settings'])
+
+    expect(await screen.findByText(/Windows DPAPI，仅当前 Windows 用户可解密/)).toBeInTheDocument()
+    expect(screen.getByText('当前密钥：••••••••1234')).toBeInTheDocument()
+    expect(screen.getByText(/API Key 无法用当前 Windows 用户解密/)).toBeInTheDocument()
+    expect(fetchSettings).toHaveBeenCalledTimes(1)
+  })
+
 })

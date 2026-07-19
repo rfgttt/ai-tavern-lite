@@ -11,6 +11,7 @@ from .db.session import SessionLocal, init_db
 from .db.models import Character
 from .api import create_api_router
 from .services.runtime.turn_finalizer import recover_interrupted_generations
+from .services.secrets import ApiKeyStorageError
 from .core.middleware import (
     BasicAuthMiddleware,
     InMemoryRateLimitMiddleware,
@@ -124,6 +125,11 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
     )
+
+    @app.exception_handler(ApiKeyStorageError)
+    async def api_key_storage_error_handler(_request, error: ApiKeyStorageError):
+        logger.error("API key secure storage error: %s", error)
+        return JSONResponse(status_code=500, content={"detail": str(error)})
 
     # Middleware is registered from inner to outer. Security headers and Host
     # validation stay outside authentication, while rate limiting runs before

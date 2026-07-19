@@ -129,6 +129,8 @@ export interface AppSettings {
   auto_memory_extraction: boolean
   api_key_configured: boolean
   api_key_masked: string
+  api_key_storage: 'windows_dpapi' | 'environment' | 'database_legacy'
+  api_key_error: string
   custom_headers: Record<string, string>
   settings_writable: boolean
   diagnostics_enabled: boolean

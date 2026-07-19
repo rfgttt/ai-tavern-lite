@@ -73,6 +73,8 @@ export const appSettingsFixture: AppSettings = {
   auto_memory_extraction: false,
   api_key_configured: false,
   api_key_masked: '',
+  api_key_storage: 'windows_dpapi',
+  api_key_error: '',
   custom_headers: {},
   settings_writable: true,
   diagnostics_enabled: true,

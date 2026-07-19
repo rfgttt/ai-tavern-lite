@@ -1,12 +1,15 @@
+import hmac
 import json
 import re
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from ..core.config import settings as default_settings
 from ..core.logging import logger
 from ..db.models import AppSetting
+from .secrets import ApiKeyStorageError, create_api_key_store
 
 
 _HEADER_TOKEN = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
@@ -37,7 +40,7 @@ def _sanitize_custom_headers(value: Any) -> Dict[str, str]:
 
 
 class SettingsService:
-    """Service for managing application settings stored in database."""
+    """Manage non-secret settings in SQLite and API keys in secure storage."""
 
     DEFAULTS = {
         "provider_name": "OpenAI Compatible",
@@ -68,13 +71,15 @@ class SettingsService:
         "auto_memory_extraction": "auto_memory_extraction",
     }
 
+    API_KEY_STORE = create_api_key_store(default_settings.api_key_secret_path)
+
     @staticmethod
     def _get_setting(db: Session, key: str) -> Optional[str]:
         setting = db.query(AppSetting).filter(AppSetting.key == key).first()
         return setting.value if setting else None
 
     @staticmethod
-    def _set_setting(db: Session, key: str, value: str):
+    def _set_setting(db: Session, key: str, value: str) -> None:
         setting = db.query(AppSetting).filter(AppSetting.key == key).first()
         if setting:
             setting.value = value
@@ -83,11 +88,86 @@ class SettingsService:
         db.commit()
 
     @classmethod
-    def get_all_settings(cls, db: Session) -> Dict[str, Any]:
-        """Get all settings, with explicitly configured env values overriding DB."""
+    def _delete_setting(cls, db: Session, key: str, *, scrub_sqlite: bool = False) -> bool:
+        bind = db.get_bind()
+        setting = db.query(AppSetting).filter(AppSetting.key == key).first()
+        if setting is None:
+            return False
+
+        if scrub_sqlite and bind is not None and bind.dialect.name == "sqlite":
+            db.execute(text("PRAGMA secure_delete=ON"))
+
+        db.delete(setting)
+        db.commit()
+
+        if scrub_sqlite and bind is not None and bind.dialect.name == "sqlite":
+            try:
+                with bind.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+                    connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+                    connection.exec_driver_sql("VACUUM")
+            except Exception as error:
+                raise ApiKeyStorageError(
+                    "API Key 已移出数据库，但 SQLite 安全清理失败；请停止服务后重试"
+                ) from error
+        return True
+
+    @classmethod
+    def api_key_is_environment_managed(cls) -> bool:
+        return "api_key" in default_settings.model_fields_set
+
+    @classmethod
+    def migrate_plaintext_api_key(cls, db: Session) -> bool:
+        """Move a legacy SQLite API key into DPAPI before future DB backups."""
+        if not cls.API_KEY_STORE.available:
+            return False
+
+        bind = db.get_bind()
+        if bind is None or not inspect(bind).has_table(AppSetting.__tablename__):
+            return False
+
+        setting = db.query(AppSetting).filter(AppSetting.key == "api_key").first()
+        if setting is None:
+            return False
+
+        legacy_value = str(setting.value or "")
+        if not legacy_value:
+            cls._delete_setting(db, "api_key", scrub_sqlite=True)
+            return True
+
+        existing_value = cls.API_KEY_STORE.read()
+        if existing_value and not hmac.compare_digest(existing_value, legacy_value):
+            raise ApiKeyStorageError(
+                "数据库与 Windows DPAPI 中存在不同的 API Key，已拒绝自动覆盖；"
+                "请先备份并在设置中明确清除或替换"
+            )
+
+        if not existing_value:
+            cls.API_KEY_STORE.write(legacy_value)
+            verified_value = cls.API_KEY_STORE.read()
+            if not hmac.compare_digest(verified_value, legacy_value):
+                raise ApiKeyStorageError("API Key 写入 Windows DPAPI 后校验失败")
+
+        cls._delete_setting(db, "api_key", scrub_sqlite=True)
+        logger.info("Legacy plaintext API key migrated to Windows DPAPI")
+        return True
+
+    @classmethod
+    def _read_api_key(cls, db: Session) -> str:
+        if cls.api_key_is_environment_managed():
+            return default_settings.api_key
+
+        if cls.API_KEY_STORE.available:
+            return cls.API_KEY_STORE.read()
+
+        return cls._get_setting(db, "api_key") or ""
+
+    @classmethod
+    def _get_non_secret_settings(cls, db: Session) -> Dict[str, Any]:
         result: Dict[str, Any] = {}
 
         for key, default_val in cls.DEFAULTS.items():
+            if key == "api_key":
+                continue
             db_val = cls._get_setting(db, key)
             if db_val is None:
                 result[key] = default_val
@@ -108,6 +188,8 @@ class SettingsService:
 
         explicitly_configured = default_settings.model_fields_set
         for result_key, settings_field in cls.ENV_FIELD_MAP.items():
+            if result_key == "api_key":
+                continue
             if settings_field in explicitly_configured:
                 result[result_key] = getattr(default_settings, settings_field)
 
@@ -116,19 +198,50 @@ class SettingsService:
         result["max_tokens"] = min(max(int(result.get("max_tokens", 1024)), 1), 32_768)
         if result["max_tokens"] >= result["context_window"]:
             result["max_tokens"] = max(1, result["context_window"] - 1)
+        return result
 
+    @classmethod
+    def get_non_secret_settings(cls, db: Session) -> Dict[str, Any]:
+        """Get settings that do not require reading the API key."""
+        return cls._get_non_secret_settings(db)
+
+    @classmethod
+    def get_all_settings(cls, db: Session) -> Dict[str, Any]:
+        """Get runtime settings, including the decrypted API key for backend use."""
+        result = cls._get_non_secret_settings(db)
+        result["api_key"] = cls._read_api_key(db)
         return result
 
     @classmethod
     def update_settings(cls, db: Session, updates: Dict[str, Any]) -> Dict[str, Any]:
-        """Update settings. Empty API key means keep existing value."""
+        """Update settings. Empty API key means keep the existing secure value."""
+        requested_api_key = updates.get("api_key")
+        wants_api_key_change = bool(updates.get("clear_api_key")) or bool(requested_api_key)
+        if wants_api_key_change and cls.api_key_is_environment_managed():
+            raise ApiKeyStorageError("API Key 由服务器环境变量管理，不能在网页中替换或清除")
+
         if updates.get("clear_api_key"):
-            cls._set_setting(db, "api_key", "")
+            if cls.API_KEY_STORE.available:
+                cls.API_KEY_STORE.clear()
+                cls._delete_setting(db, "api_key", scrub_sqlite=True)
+            else:
+                cls._set_setting(db, "api_key", "")
 
         for key, value in updates.items():
             if key == "clear_api_key" or key not in cls.DEFAULTS:
                 continue
-            if key == "api_key" and (value is None or value == ""):
+            if key == "api_key":
+                if value is None or value == "":
+                    continue
+                normalized = str(value)
+                if cls.API_KEY_STORE.available:
+                    cls.API_KEY_STORE.write(normalized)
+                    verified = cls.API_KEY_STORE.read()
+                    if not hmac.compare_digest(verified, normalized):
+                        raise ApiKeyStorageError("API Key 写入 Windows DPAPI 后校验失败")
+                    cls._delete_setting(db, "api_key", scrub_sqlite=True)
+                else:
+                    cls._set_setting(db, "api_key", normalized)
                 continue
 
             if isinstance(value, bool):
@@ -147,18 +260,37 @@ class SettingsService:
 
     @classmethod
     def get_masked_settings(cls, db: Session) -> Dict[str, Any]:
-        """Get settings with API key masked (for frontend)."""
-        settings = cls.get_all_settings(db)
-        api_key = settings.get("api_key", "")
+        """Get settings without returning the full API key to the frontend."""
+        result = cls._get_non_secret_settings(db)
+        error_message = ""
 
-        if api_key and len(api_key) > 8:
-            masked = api_key[:4] + "****" + api_key[-4:]
+        if cls.api_key_is_environment_managed():
+            api_key = default_settings.api_key
+            configured = bool(api_key)
+            storage = "environment"
+        elif cls.API_KEY_STORE.available:
+            storage = cls.API_KEY_STORE.backend_name
+            try:
+                configured = cls.API_KEY_STORE.is_configured()
+                api_key = cls.API_KEY_STORE.read() if configured else ""
+            except ApiKeyStorageError as error:
+                configured = cls.API_KEY_STORE.is_configured()
+                api_key = ""
+                error_message = str(error)
+        else:
+            storage = "database_legacy"
+            api_key = cls._get_setting(db, "api_key") or ""
+            configured = bool(api_key)
+
+        if api_key and len(api_key) > 4:
+            masked = "••••••••" + api_key[-4:]
         elif api_key:
-            masked = "****"
+            masked = "••••••••"
         else:
             masked = ""
 
-        result = {k: v for k, v in settings.items() if k != "api_key"}
-        result["api_key_configured"] = bool(api_key)
+        result["api_key_configured"] = configured
         result["api_key_masked"] = masked
+        result["api_key_storage"] = storage
+        result["api_key_error"] = error_message
         return result

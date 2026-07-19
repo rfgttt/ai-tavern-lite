@@ -207,3 +207,28 @@ def db_with_session(db_with_character):
     db.refresh(session)
 
     return db, char, session
+
+
+class _TestSecretProtector:
+    """Deterministic reversible protector used only inside isolated tests."""
+
+    _MASK = 0xA5
+
+    def protect(self, plaintext: bytes) -> bytes:
+        return bytes(byte ^ self._MASK for byte in plaintext[::-1])
+
+    def unprotect(self, ciphertext: bytes) -> bytes:
+        return bytes(byte ^ self._MASK for byte in ciphertext)[::-1]
+
+
+@pytest.fixture(autouse=True)
+def isolated_api_key_store(tmp_path, monkeypatch):
+    from app.services.secrets import FileApiKeyStore
+    from app.services.settings_service import SettingsService
+
+    store = FileApiKeyStore(
+        tmp_path / "secrets" / "api-key.test",
+        _TestSecretProtector(),
+    )
+    monkeypatch.setattr(SettingsService, "API_KEY_STORE", store)
+    yield store

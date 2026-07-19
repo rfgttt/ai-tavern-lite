@@ -50,7 +50,7 @@ def update_settings(update: SettingsUpdate, db: Session = Depends(get_db)):
         )
 
     update_dict = update.model_dump(exclude_unset=True)
-    current = SettingsService.get_all_settings(db)
+    current = SettingsService.get_non_secret_settings(db)
     candidate = {**current, **update_dict}
     if candidate["max_tokens"] >= candidate["context_window"]:
         raise HTTPException(status_code=422, detail="max_tokens 必须小于 context_window")

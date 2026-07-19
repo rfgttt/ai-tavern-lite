@@ -120,8 +120,8 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
       await updateSettings(updateData)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-    } catch (err) {
-      alert('保存失败')
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || err.message || '保存失败')
     }
   }
 
@@ -132,8 +132,11 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
       await updateSettings({ clear_api_key: true })
       setFormData((previous) => ({ ...previous, api_key: '' }))
       setTestResult({ success: true, message: 'API Key 已清除' })
-    } catch {
-      setTestResult({ success: false, message: '清除 API Key 失败' })
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        message: err?.response?.data?.detail || err.message || '清除 API Key 失败',
+      })
     }
   }
 
@@ -328,6 +331,26 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
                   {settings?.api_key_configured && settings.api_key_masked && (
                     <p className="text-[11px] text-tavern-text-muted mt-1.5">
                       当前密钥：{settings.api_key_masked}
+                    </p>
+                  )}
+                  {settings?.api_key_storage === 'windows_dpapi' && (
+                    <p className="text-[11px] text-emerald-300/80 mt-1.5">
+                      安全存储：Windows DPAPI，仅当前 Windows 用户可解密
+                    </p>
+                  )}
+                  {settings?.api_key_storage === 'environment' && (
+                    <p className="text-[11px] text-tavern-text-muted mt-1.5">
+                      密钥来源：服务器环境变量
+                    </p>
+                  )}
+                  {settings?.api_key_storage === 'database_legacy' && settings?.api_key_configured && (
+                    <p className="text-[11px] text-amber-300/80 mt-1.5">
+                      当前系统不支持 Windows DPAPI，密钥仍使用兼容存储
+                    </p>
+                  )}
+                  {settings?.api_key_error && (
+                    <p className="text-[11px] text-tavern-rose-400 mt-1.5">
+                      {settings.api_key_error}
                     </p>
                   )}
                 </FormField>

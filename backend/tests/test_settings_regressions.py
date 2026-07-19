@@ -25,12 +25,15 @@ def test_database_settings_are_not_overwritten_by_defaults(test_db):
     assert result["username"] == "Alice"
 
 
-def test_clear_api_key_removes_saved_key(test_db):
+def test_clear_api_key_removes_saved_key(test_db, isolated_api_key_store):
     SettingsService.update_settings(test_db, {"api_key": "secret-key"})
+    assert isolated_api_key_store.is_configured() is True
+
     result = SettingsService.update_settings(test_db, {"clear_api_key": True})
 
     saved = test_db.query(AppSetting).filter(AppSetting.key == "api_key").first()
-    assert saved.value == ""
+    assert saved is None
+    assert isolated_api_key_store.is_configured() is False
     assert result["api_key"] == ""
 
 

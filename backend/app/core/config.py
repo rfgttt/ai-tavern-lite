@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     backups_dir: Path = _default_user_data_dir() / "backups"
     logs_dir: Path = _default_user_data_dir() / "logs"
     diagnostics_dir: Path = _default_user_data_dir() / "diagnostics"
+    secrets_dir: Path = _default_user_data_dir().parent / "secrets"
+    api_key_secret_path: Path = _default_user_data_dir().parent / "secrets" / "api-key.dpapi"
     storage_registry_path: Path = _default_user_data_dir().parent / "storage.json"
 
     environment: str = "development"
@@ -118,6 +120,8 @@ class Settings(BaseSettings):
             "backups_dir": self.data_dir / "backups",
             "logs_dir": self.data_dir / "logs",
             "diagnostics_dir": self.data_dir / "diagnostics",
+            "secrets_dir": self.data_dir.parent / "secrets",
+            "api_key_secret_path": self.data_dir.parent / "secrets" / "api-key.dpapi",
             "storage_registry_path": self.data_dir.parent / "storage.json",
         }
         for field_name, path in derived_paths.items():
@@ -125,6 +129,9 @@ class Settings(BaseSettings):
                 setattr(self, field_name, path)
             else:
                 setattr(self, field_name, Path(getattr(self, field_name)).expanduser())
+
+        if "api_key_secret_path" not in explicit:
+            self.api_key_secret_path = self.secrets_dir / "api-key.dpapi"
 
         if "database_url" not in explicit:
             self.database_url = f"sqlite:///{(self.data_dir / 'ai_tavern.db').as_posix()}"
@@ -221,6 +228,7 @@ class Settings(BaseSettings):
             self.backups_dir,
             self.logs_dir,
             self.diagnostics_dir,
+            self.secrets_dir,
         ]:
             directory.mkdir(parents=True, exist_ok=True)
 

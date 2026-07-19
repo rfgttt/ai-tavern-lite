@@ -132,10 +132,25 @@ def migrate_sqlite_schema(target_engine: Engine = engine):
 
 
 def init_db(target_engine: Engine = engine):
-    """Back up, migrate, and validate the configured database."""
+    """Secure legacy credentials, then back up, migrate, and validate the database."""
     settings.ensure_directories()
     database_path = _sqlite_database_path(target_engine)
     database_existed = bool(database_path and database_path.exists())
+
+    if database_existed:
+        from ..services.settings_service import SettingsService
+
+        migration_session_factory = sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=target_engine,
+        )
+        migration_session = migration_session_factory()
+        try:
+            SettingsService.migrate_plaintext_api_key(migration_session)
+        finally:
+            migration_session.close()
+
     backup_path = backup_database(target_engine)
 
     try:
