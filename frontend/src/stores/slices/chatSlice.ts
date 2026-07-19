@@ -169,23 +169,36 @@ export const createChatSlice: AppStoreSlice<ChatSlice> = (set, get) => ({
   stopGeneration: async () => {
     const controller = get().streamController
     const messageId = get().generatingMessageId
+    const sessionId = get().currentSession?.id
     invalidateChatStreamRequests()
-    try {
-      if (messageId && messageId !== 'pending') {
-        await api.stopGeneration(messageId)
-        set((state) => ({
-          messages: state.messages.map((message) =>
-            message.id === messageId
-              ? { ...message, generation_status: 'stopped' }
-              : message,
-          ),
-        }))
+    controller?.abort()
+
+    set((state) => {
+      const ownsCurrentStream = state.streamController === controller
+      const ownsCurrentMessage =
+        Boolean(sessionId)
+        && state.currentSession?.id === sessionId
+        && state.generatingMessageId === messageId
+      if (!ownsCurrentStream && !ownsCurrentMessage) return {}
+      return {
+        messages:
+          messageId && messageId !== 'pending'
+            ? state.messages.map((message) =>
+                message.id === messageId
+                  ? { ...message, generation_status: 'stopped' as const }
+                  : message,
+              )
+            : state.messages,
+        generatingMessageId: null,
+        streamController: null,
       }
+    })
+
+    if (!messageId || messageId === 'pending') return
+    try {
+      await api.stopGeneration(messageId)
     } catch {
       // The stream may already have completed between the click and this request.
-    } finally {
-      controller?.abort()
-      set({ generatingMessageId: null, streamController: null })
     }
   },
 

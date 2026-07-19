@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -95,6 +95,31 @@ describe('SettingsPage backup and restore', () => {
     expect(screen.getByText('当前密钥：••••••••1234')).toBeInTheDocument()
     expect(screen.getByText(/API Key 无法用当前 Windows 用户解密/)).toBeInTheDocument()
     expect(fetchSettings).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps unsaved form edits when a delayed settings snapshot arrives', async () => {
+    const fetchSettings = vi.fn(async () => undefined)
+    useAppStore.setState({
+      settings: { ...appSettingsFixture, username: '初始名称' },
+      fetchSettings,
+    })
+    vi.spyOn(backupApi, 'getBackupStatus').mockResolvedValue({ data: currentStatus } as never)
+
+    renderWithRouter(<SettingsPage />, ['/settings'])
+
+    const user = userEvent.setup()
+    const usernameInput = await screen.findByDisplayValue('初始名称')
+    await user.clear(usernameInput)
+    await user.type(usernameInput, '尚未保存的编辑')
+
+    act(() => {
+      useAppStore.setState({
+        settings: { ...appSettingsFixture, username: '晚到的旧设置' },
+      })
+    })
+
+    expect(usernameInput).toHaveValue('尚未保存的编辑')
+    expect(fetchSettings).toHaveBeenCalledOnce()
   })
 
 })

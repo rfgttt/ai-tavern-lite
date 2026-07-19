@@ -115,7 +115,7 @@ export const createSessionSlice: AppStoreSlice<SessionSlice> = (set, get) => ({
         sessionCache,
         drafts,
         scrollPositions,
-        ...(wasCurrent
+        ...(state.currentSession?.id === id
           ? {
               currentSession: null,
               messages: [],
@@ -248,12 +248,16 @@ export const createSessionSlice: AppStoreSlice<SessionSlice> = (set, get) => ({
     set({ runtimeLoading: true, immersiveError: null })
     try {
       const response = await api.replaceRuntimeState(session.id, runtimeState)
+      if (get().currentSession?.id !== session.id) return
       set({ runtime: response.data })
     } catch (error) {
+      if (get().currentSession?.id !== session.id) return
       set({ immersiveError: error instanceof Error ? error.message : '状态保存失败' })
       throw error
     } finally {
-      set({ runtimeLoading: false })
+      if (get().currentSession?.id === session.id) {
+        set({ runtimeLoading: false })
+      }
     }
   },
 
@@ -263,15 +267,20 @@ export const createSessionSlice: AppStoreSlice<SessionSlice> = (set, get) => ({
     set({ runtimeLoading: true, immersiveError: null })
     try {
       const response = await api.rollbackRuntime(session.id, messageId)
+      if (get().currentSession?.id !== session.id) return
       set({
         runtime: response.data,
         activeLorebook: response.data.last_turn?.triggered_lorebook || [],
       })
       await Promise.all([get().fetchMessages(session.id), get().fetchTimeline(session.id)])
     } catch (error) {
-      set({ immersiveError: error instanceof Error ? error.message : '剧情回溯失败' })
+      if (get().currentSession?.id === session.id) {
+        set({ immersiveError: error instanceof Error ? error.message : '剧情回溯失败' })
+      }
     } finally {
-      set({ runtimeLoading: false })
+      if (get().currentSession?.id === session.id) {
+        set({ runtimeLoading: false })
+      }
     }
   },
 })

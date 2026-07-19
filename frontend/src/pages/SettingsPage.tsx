@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/stores/appStore'
 import { cancelPendingRestore, exportPortableBackup, getBackupStatus, prepareBackupRestore, testConnection } from '@/api'
 import DiagnosticsPanel from '@/components/DiagnosticsPanel'
@@ -64,12 +64,14 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
 
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null)
   const [testing, setTesting] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
   const [backupFile, setBackupFile] = useState<File | null>(null)
   const [backupBusy, setBackupBusy] = useState<'export' | 'restore' | 'cancel' | null>(null)
   const [backupNotice, setBackupNotice] = useState<{ success: boolean; message: string } | null>(null)
   const settingsLocked = settings?.settings_writable === false
+  const formDirtyRef = useRef(false)
 
   useEffect(() => {
     fetchSettings()
@@ -89,29 +91,31 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
   }
 
   useEffect(() => {
-    if (settings) {
-      setFormData({
-        provider_name: settings.provider_name,
-        base_url: settings.base_url,
-        api_key: '',
-        model: settings.model,
-        temperature: settings.temperature,
-        top_p: settings.top_p,
-        max_tokens: settings.max_tokens,
-        context_window: settings.context_window,
-        username: settings.username,
-        mock_llm: settings.mock_llm,
-        auto_memory_extraction: settings.auto_memory_extraction,
-      })
-    }
+    if (!settings || formDirtyRef.current) return
+    setFormData({
+      provider_name: settings.provider_name,
+      base_url: settings.base_url,
+      api_key: '',
+      model: settings.model,
+      temperature: settings.temperature,
+      top_p: settings.top_p,
+      max_tokens: settings.max_tokens,
+      context_window: settings.context_window,
+      username: settings.username,
+      mock_llm: settings.mock_llm,
+      auto_memory_extraction: settings.auto_memory_extraction,
+    })
   }, [settings])
 
   const handleChange = (field: string, value: any) => {
+    formDirtyRef.current = true
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
   const handleSave = async () => {
-    if (settingsLocked) return
+    if (settingsLocked || saving) return
+    setSaving(true)
+    formDirtyRef.current = false
     try {
       const updateData: any = { ...formData }
       if (!formData.api_key) {
@@ -121,7 +125,10 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch (err: any) {
+      formDirtyRef.current = true
       alert(err?.response?.data?.detail || err.message || '保存失败')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -528,9 +535,11 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
           {/* Actions */}
           {!settingsLocked && (
             <div className="flex items-center gap-3 mt-6">
-              <button onClick={handleSave} className="btn btn-primary">
+              <button onClick={handleSave} className="btn btn-primary" disabled={saving}>
                 {saved ? (
                   <><Check size={15} /> 已保存</>
+                ) : saving ? (
+                  '保存中…'
                 ) : (
                   '保存设置'
                 )}
