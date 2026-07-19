@@ -108,6 +108,12 @@ export const handlers = [
   })),
   http.get('*/api/characters/:characterId/lorebook', () => HttpResponse.json(lorebookFixture)),
   http.put('*/api/characters/:characterId/lorebook', async ({ request }) => HttpResponse.json(await request.json())),
+  http.get('*/api/sessions/:sessionId/messages/page', () => HttpResponse.json({
+    items: [],
+    has_more: false,
+    oldest_sequence: null,
+    newest_sequence: null,
+  })),
   http.get('*/api/sessions', ({ request }) => {
     const url = new URL(request.url)
     const characterId = url.searchParams.get('character_id')

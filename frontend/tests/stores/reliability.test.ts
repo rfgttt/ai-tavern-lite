@@ -71,10 +71,10 @@ describe('session and stream reliability', () => {
     const counts = { messages: 0, runtime: 0, timeline: 0 }
 
     server.use(
-      http.get('*/api/sessions/:sessionId/messages', async () => {
+      http.get('*/api/sessions/:sessionId/messages/page', async () => {
         counts.messages += 1
         await gate
-        return HttpResponse.json([messagePayload])
+        return HttpResponse.json({ items: [messagePayload], has_more: false, oldest_sequence: messagePayload.sequence, newest_sequence: messagePayload.sequence })
       }),
       http.get('*/api/sessions/:sessionId/runtime', async () => {
         counts.runtime += 1
@@ -104,6 +104,94 @@ describe('session and stream reliability', () => {
     expect(useAppStore.getState().messages).toEqual([messagePayload])
   })
 
+  it('loads older pages without duplicates and keeps pagination state in the session cache', async () => {
+    const newerMessages: Message[] = [
+      { ...messagePayload, id: 'message-3', sequence: 3, content: '第三条' },
+      { ...messagePayload, id: 'message-4', sequence: 4, content: '第四条' },
+    ]
+    const olderMessages: Message[] = [
+      { ...messagePayload, id: 'message-1', sequence: 1, content: '第一条' },
+      { ...messagePayload, id: 'message-2', sequence: 2, content: '第二条' },
+      { ...messagePayload, id: 'message-3', sequence: 3, content: '重复边界' },
+    ]
+
+    server.use(
+      http.get('*/api/sessions/:sessionId/messages/page', ({ request }) => {
+        const url = new URL(request.url)
+        expect(url.searchParams.get('before_sequence')).toBe('3')
+        expect(url.searchParams.get('limit')).toBe('50')
+        return HttpResponse.json({
+          items: olderMessages,
+          has_more: false,
+          oldest_sequence: 1,
+          newest_sequence: 2,
+        })
+      }),
+    )
+
+    useAppStore.setState({
+      currentSession: session,
+      messages: newerMessages,
+      hasMoreMessages: true,
+      oldestMessageSequence: 3,
+    })
+
+    await useAppStore.getState().fetchOlderMessages(session.id)
+
+    expect(useAppStore.getState().messages.map((message) => message.id)).toEqual([
+      'message-1',
+      'message-2',
+      'message-3',
+      'message-4',
+    ])
+    expect(useAppStore.getState().hasMoreMessages).toBe(false)
+    expect(useAppStore.getState().oldestMessageSequence).toBe(1)
+    expect(useAppStore.getState().sessionCache[session.id]?.messages).toEqual(
+      useAppStore.getState().messages,
+    )
+  })
+
+  it('ignores an older-page response after the user leaves that session', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const nextSession: ChatSession = { ...session, id: 'session-after-older-load' }
+    const nextMessage: Message = {
+      ...messagePayload,
+      id: 'message-after-older-load',
+      session_id: nextSession.id,
+    }
+
+    server.use(
+      http.get('*/api/sessions/:sessionId/messages/page', async () => {
+        await gate
+        return HttpResponse.json({
+          items: [{ ...messagePayload, id: 'old-page-message', sequence: 1 }],
+          has_more: false,
+          oldest_sequence: 1,
+          newest_sequence: 1,
+        })
+      }),
+    )
+
+    useAppStore.setState({
+      currentSession: session,
+      messages: [{ ...messagePayload, id: 'message-50', sequence: 50 }],
+      hasMoreMessages: true,
+      oldestMessageSequence: 50,
+    })
+    const pending = useAppStore.getState().fetchOlderMessages(session.id)
+    await waitFor(() => expect(useAppStore.getState().loadingOlderMessages).toBe(true))
+
+    await useAppStore.getState().selectSession(null)
+    useAppStore.setState({ currentSession: nextSession, messages: [nextMessage] })
+    release()
+    await pending
+
+    expect(useAppStore.getState().currentSession?.id).toBe(nextSession.id)
+    expect(useAppStore.getState().messages).toEqual([nextMessage])
+    expect(useAppStore.getState().loadingOlderMessages).toBe(false)
+  })
+
   it('prevents a delayed previous-session response from replacing the active session', async () => {
     let releaseOld!: () => void
     const oldGate = new Promise<void>((resolve) => { releaseOld = resolve })
@@ -120,12 +208,12 @@ describe('session and stream reliability', () => {
     }
 
     server.use(
-      http.get('*/api/sessions/:sessionId/messages', async ({ params }) => {
+      http.get('*/api/sessions/:sessionId/messages/page', async ({ params }) => {
         if (params.sessionId === session.id) {
           await oldGate
-          return HttpResponse.json([messagePayload])
+          return HttpResponse.json({ items: [messagePayload], has_more: false, oldest_sequence: messagePayload.sequence, newest_sequence: messagePayload.sequence })
         }
-        return HttpResponse.json([nextMessage])
+        return HttpResponse.json({ items: [nextMessage], has_more: false, oldest_sequence: nextMessage.sequence, newest_sequence: nextMessage.sequence })
       }),
       http.get('*/api/sessions/:sessionId/runtime', async ({ params }) => {
         if (params.sessionId === session.id) await oldGate
@@ -154,8 +242,44 @@ describe('session and stream reliability', () => {
     expect(useAppStore.getState().messages).toEqual([nextMessage])
   })
 
+  it('restores a fresh paged cache without collapsing it to the latest page', async () => {
+    const requests = vi.spyOn(api, 'getMessagePage')
+    const previousSession: ChatSession = { ...session, id: 'session-previous' }
+    const cachedMessages = [
+      { ...messagePayload, id: 'cached-older', sequence: 1 },
+      { ...messagePayload, id: 'cached-newer', sequence: 51 },
+    ]
+    const now = Date.now()
+
+    useAppStore.setState({
+      currentSession: previousSession,
+      messages: [],
+      sessionCache: {
+        [session.id]: {
+          messages: cachedMessages,
+          runtime: runtimePayload,
+          timeline: [],
+          activeLorebook: [],
+          hasMoreMessages: true,
+          oldestMessageSequence: 1,
+          loadedAt: now,
+          messagesLoadedAt: now,
+          runtimeLoadedAt: now,
+          timelineLoadedAt: now,
+        },
+      },
+    })
+
+    await useAppStore.getState().selectSession(session)
+
+    expect(requests).not.toHaveBeenCalled()
+    expect(useAppStore.getState().messages).toEqual(cachedMessages)
+    expect(useAppStore.getState().hasMoreMessages).toBe(true)
+    expect(useAppStore.getState().oldestMessageSequence).toBe(1)
+  })
+
   it('does not refetch when the active session cache is still fresh', async () => {
-    const requests = vi.spyOn(api, 'getMessages')
+    const requests = vi.spyOn(api, 'getMessagePage')
     useAppStore.setState({
       currentSession: session,
       sessionCache: {

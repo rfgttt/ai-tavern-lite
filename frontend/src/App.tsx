@@ -34,6 +34,9 @@ function App() {
           messageCount: state.messages.length,
           loadingMessages: state.loadingMessages,
           messageLoadError: state.messageLoadError,
+          hasMoreMessages: state.hasMoreMessages,
+          loadingOlderMessages: state.loadingOlderMessages,
+          olderMessageLoadError: state.olderMessageLoadError,
           draft: sessionId ? state.drafts[sessionId] || '' : '',
           scrollPosition: sessionId ? state.scrollPositions[sessionId] || 0 : 0,
         }

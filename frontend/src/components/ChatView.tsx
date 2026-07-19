@@ -26,6 +26,14 @@ import { useToast } from './ui/ToastProvider'
 
 const PromptPreviewModal = lazy(() => import('./PromptPreviewModal'))
 
+interface PendingPrependAnchor {
+  sessionId: string
+  scrollHeight: number
+  scrollTop: number
+  anchorMessageId: string | null
+  anchorOffset: number
+}
+
 export default function ChatView() {
   const navigate = useNavigate()
   const { showToast } = useToast()
@@ -35,6 +43,9 @@ export default function ChatView() {
   const loadingMessages = useAppStore((state) => state.loadingMessages)
   const runtimeLoading = useAppStore((state) => state.runtimeLoading)
   const messageLoadError = useAppStore((state) => state.messageLoadError)
+  const hasMoreMessages = useAppStore((state) => state.hasMoreMessages)
+  const loadingOlderMessages = useAppStore((state) => state.loadingOlderMessages)
+  const olderMessageLoadError = useAppStore((state) => state.olderMessageLoadError)
   const drafts = useAppStore((state) => state.drafts)
   const scrollPositions = useAppStore((state) => state.scrollPositions)
   const runtime = useAppStore((state) => state.runtime)
@@ -52,6 +63,7 @@ export default function ChatView() {
   const toggleRuntimeDrawer = useAppStore((state) => state.toggleRuntimeDrawer)
   const clearImmersiveError = useAppStore((state) => state.clearImmersiveError)
   const refreshCurrentSession = useAppStore((state) => state.refreshCurrentSession)
+  const fetchOlderMessages = useAppStore((state) => state.fetchOlderMessages)
   const setDraft = useAppStore((state) => state.setDraft)
   const setScrollPosition = useAppStore((state) => state.setScrollPosition)
   const fetchSettings = useAppStore((state) => state.fetchSettings)
@@ -75,6 +87,7 @@ export default function ChatView() {
   const activeSessionRef = useRef<string | null>(null)
   const restoredSessionRef = useRef<string | null>(null)
   const skipNextAutoScrollRef = useRef(false)
+  const pendingPrependAnchorRef = useRef<PendingPrependAnchor | null>(null)
 
   useEffect(() => {
     if (!currentSession) return
@@ -106,6 +119,7 @@ export default function ChatView() {
     if (activeSessionRef.current !== sessionId) {
       activeSessionRef.current = sessionId
       restoredSessionRef.current = null
+      pendingPrependAnchorRef.current = null
       autoScrollRef.current = true
     }
     if (!sessionId || loadingMessages || runtimeLoading || restoredSessionRef.current === sessionId) return
@@ -119,6 +133,57 @@ export default function ChatView() {
     skipNextAutoScrollRef.current = true
   }, [currentSession?.id, loadingMessages, messages.length, runtime?.revision, runtimeLoading, scrollPositions])
 
+  useLayoutEffect(() => {
+    const pending = pendingPrependAnchorRef.current
+    const sessionId = currentSession?.id
+    if (!pending || !sessionId || pending.sessionId !== sessionId || loadingOlderMessages) return
+
+    if (olderMessageLoadError) {
+      pendingPrependAnchorRef.current = null
+      return
+    }
+
+    const messageList = messageListRef.current
+    if (!messageList) {
+      pendingPrependAnchorRef.current = null
+      return
+    }
+
+    const heightDelta = messageList.scrollHeight - pending.scrollHeight
+    const browserScrollDelta = messageList.scrollTop - pending.scrollTop
+    let nextScrollTop = messageList.scrollTop
+    let anchorCorrected = false
+    if (pending.anchorMessageId) {
+      const anchor = Array.from(
+        messageList.querySelectorAll<HTMLElement>('[data-message-id]'),
+      ).find((element) => element.dataset.messageId === pending.anchorMessageId)
+      if (anchor) {
+        const currentOffset =
+          anchor.getBoundingClientRect().top - messageList.getBoundingClientRect().top
+        const anchorDelta = currentOffset - pending.anchorOffset
+        if (Math.abs(anchorDelta) > 0.5) {
+          nextScrollTop = messageList.scrollTop + anchorDelta
+          anchorCorrected = true
+        }
+      }
+    }
+    if (!anchorCorrected && Math.abs(browserScrollDelta) < 0.5) {
+      nextScrollTop = pending.scrollTop + heightDelta
+    }
+
+    messageList.scrollTop = Math.max(0, nextScrollTop)
+    setScrollPosition(sessionId, messageList.scrollTop)
+    autoScrollRef.current = false
+    skipNextAutoScrollRef.current = true
+    pendingPrependAnchorRef.current = null
+  }, [
+    currentSession?.id,
+    loadingOlderMessages,
+    messages.length,
+    olderMessageLoadError,
+    setScrollPosition,
+  ])
+
   useEffect(() => {
     const sessionId = currentSession?.id
     if (!sessionId || loadingMessages || runtimeLoading || restoredSessionRef.current !== sessionId) return
@@ -129,10 +194,53 @@ export default function ChatView() {
     if (autoScrollRef.current) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [currentSession?.id, loadingMessages, messages, runtime?.revision, runtimeLoading])
 
+  const requestOlderMessages = async () => {
+    const sessionId = currentSession?.id
+    if (
+      !sessionId
+      || loadingMessages
+      || loadingOlderMessages
+      || !hasMoreMessages
+      || pendingPrependAnchorRef.current
+    ) return
+
+    const messageList = messageListRef.current
+    if (!messageList) return
+    const listRect = messageList.getBoundingClientRect()
+    const messageElements = Array.from(
+      messageList.querySelectorAll<HTMLElement>('[data-message-id]'),
+    )
+    const anchor = messageElements.find((element) => {
+      const rect = element.getBoundingClientRect()
+      return rect.bottom >= listRect.top
+    }) || messageElements[0] || null
+
+    pendingPrependAnchorRef.current = {
+      sessionId,
+      scrollHeight: messageList.scrollHeight,
+      scrollTop: messageList.scrollTop,
+      anchorMessageId: anchor?.dataset.messageId || null,
+      anchorOffset: anchor
+        ? anchor.getBoundingClientRect().top - listRect.top
+        : 0,
+    }
+    autoScrollRef.current = false
+    skipNextAutoScrollRef.current = true
+
+    try {
+      await fetchOlderMessages(sessionId)
+    } catch {
+      pendingPrependAnchorRef.current = null
+    }
+  }
+
   const handleScroll = (event: React.UIEvent<HTMLElement>) => {
     const target = event.currentTarget
     autoScrollRef.current = target.scrollHeight - target.scrollTop - target.clientHeight < 120
     if (currentSession) setScrollPosition(currentSession.id, target.scrollTop)
+    if (target.scrollTop <= 160 && hasMoreMessages && !loadingOlderMessages) {
+      void requestOlderMessages()
+    }
   }
 
   const ensureModelConfiguration = async () => {
@@ -287,6 +395,26 @@ export default function ChatView() {
 
       <main data-testid="message-list" ref={messageListRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-5 sm:py-6 scrollbar-thin" onScroll={handleScroll}>
         <div className="max-w-4xl mx-auto space-y-5">
+          {!loadingMessages && messages.length > 0 ? (
+            <div data-testid="older-message-controls" className="flex justify-center min-h-8">
+              {loadingOlderMessages ? (
+                <div className="text-xs text-tavern-text-muted flex items-center gap-2" role="status">
+                  <span className="generating-dots"><span/><span/><span/></span>
+                  <span>正在加载更早消息…</span>
+                </div>
+              ) : olderMessageLoadError ? (
+                <button className="btn btn-secondary btn-sm" onClick={() => void requestOlderMessages()}>
+                  加载失败，点击重试
+                </button>
+              ) : hasMoreMessages ? (
+                <button className="btn btn-secondary btn-sm" onClick={() => void requestOlderMessages()}>
+                  加载更早消息
+                </button>
+              ) : (
+                <p className="text-[11px] text-tavern-text-muted/70">已到达会话开头</p>
+              )}
+            </div>
+          ) : null}
           {loadingMessages && messages.length === 0 ? <div className="session-loading-card"><span className="generating-dots"><span/><span/><span/></span><p>正在恢复会话…</p></div> : null}
           {messageLoadError && messages.length === 0 ? <div className="session-load-error"><p>{messageLoadError}</p><button className="btn btn-secondary btn-sm" onClick={() => void refreshCurrentSession()}>重试</button></div> : null}
           {runtime?.profile.mode === 'adventure' && messages.length <= 1 ? (
@@ -301,7 +429,12 @@ export default function ChatView() {
             const turn = timelineByMessageId.get(message.id)
             const isAssistant = message.role === 'assistant'
             return (
-              <article key={message.id} className={`flex gap-3 ${message.id.startsWith('local-') || message.generation_status === 'generating' ? 'animate-slide-up' : ''} ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
+              <article
+                key={message.id}
+                data-message-id={message.id}
+                data-message-sequence={message.sequence}
+                className={`flex gap-3 ${message.id.startsWith('local-') || message.generation_status === 'generating' ? 'animate-slide-up' : ''} ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
+              >
                 {isAssistant ? (
                   <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0 ring-1 ring-tavern-border-gold/20 mt-0.5">
                     {selectedCharacter.avatar_path ? <img src={selectedCharacter.avatar_path} alt="" className="w-full h-full object-cover"/> : <div className="w-full h-full bg-tavern-bg-tertiary flex items-center justify-center text-sm font-medium text-tavern-text-secondary">{selectedCharacter.name.charAt(0)}</div>}

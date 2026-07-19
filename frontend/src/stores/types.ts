@@ -22,6 +22,8 @@ export interface SessionCacheEntry {
   messagesLoadedAt?: number
   runtimeLoadedAt?: number
   timelineLoadedAt?: number
+  hasMoreMessages?: boolean
+  oldestMessageSequence?: number | null
 }
 
 export interface CharacterSlice {
@@ -43,6 +45,10 @@ export interface SessionSlice {
   messages: Message[]
   loadingMessages: boolean
   messageLoadError: string | null
+  hasMoreMessages: boolean
+  oldestMessageSequence: number | null
+  loadingOlderMessages: boolean
+  olderMessageLoadError: string | null
   sessionCache: Record<string, SessionCacheEntry>
   drafts: Record<string, string>
   scrollPositions: Record<string, number>
@@ -58,6 +64,7 @@ export interface SessionSlice {
   renameSession: (id: string, title: string) => Promise<void>
   deleteSession: (id: string) => Promise<void>
   fetchMessages: (sessionId: string) => Promise<void>
+  fetchOlderMessages: (sessionId: string) => Promise<void>
   fetchRuntime: (sessionId: string) => Promise<void>
   fetchTimeline: (sessionId: string) => Promise<void>
   refreshCurrentSession: () => Promise<void>

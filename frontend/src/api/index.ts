@@ -6,6 +6,7 @@ import type {
   ChatSession,
   SessionCreateOptions,
   Message,
+  MessagePage,
   Memory,
   AppSettings,
   Lorebook,
@@ -82,6 +83,10 @@ export const updateSession = (id: string, data: { title?: string }) =>
 export const deleteSession = (id: string) => api.delete(`/sessions/${id}`)
 export const getMessages = (sessionId: string) =>
   api.get<Message[]>(`/sessions/${sessionId}/messages`)
+export const getMessagePage = (
+  sessionId: string,
+  params?: { before_sequence?: number; limit?: number },
+) => api.get<MessagePage>(`/sessions/${sessionId}/messages/page`, { params })
 export const addMessage = (sessionId: string, role: string, content: string) =>
   api.post<Message>(`/sessions/${sessionId}/messages`, { session_id: sessionId, role, content })
 export const updateMessage = (id: string, data: { content?: string; generation_status?: string }) =>

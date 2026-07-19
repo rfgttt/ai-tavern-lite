@@ -68,7 +68,7 @@ describe('modular app store slices', () => {
   it('shows cached session data immediately and refreshes it through the session slice', async () => {
     const refreshedMessage = { ...cachedMessage, id: 'refreshed-message', content: '服务端最新内容' }
     server.use(
-      http.get('*/api/sessions/:sessionId/messages', () => HttpResponse.json([refreshedMessage])),
+      http.get('*/api/sessions/:sessionId/messages/page', () => HttpResponse.json({ items: [refreshedMessage], has_more: false, oldest_sequence: refreshedMessage.sequence, newest_sequence: refreshedMessage.sequence })),
       http.get('*/api/sessions/:sessionId/runtime', () => HttpResponse.json({
         session_id: sessionsFixture[0].id,
         profile: { mode: 'relationship' },
@@ -89,7 +89,7 @@ describe('modular app store slices', () => {
           runtime: null,
           timeline: [],
           activeLorebook: [],
-          loadedAt: Date.now(),
+          loadedAt: Date.now() - 10_000,
         },
       },
     })

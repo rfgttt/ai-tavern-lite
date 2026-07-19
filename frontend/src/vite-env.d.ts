@@ -8,6 +8,9 @@ interface Window {
       messageCount: number
       loadingMessages: boolean
       messageLoadError: string | null
+      hasMoreMessages: boolean
+      loadingOlderMessages: boolean
+      olderMessageLoadError: string | null
       draft: string
       scrollPosition: number
     }>
@@ -17,6 +20,9 @@ interface Window {
       messageCount: number
       loadingMessages: boolean
       messageLoadError: string | null
+      hasMoreMessages: boolean
+      loadingOlderMessages: boolean
+      olderMessageLoadError: string | null
       draft: string
       scrollPosition: number
     }

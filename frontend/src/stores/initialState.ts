@@ -10,6 +10,10 @@ export type AppStateData = Pick<
   | 'messages'
   | 'loadingMessages'
   | 'messageLoadError'
+  | 'hasMoreMessages'
+  | 'oldestMessageSequence'
+  | 'loadingOlderMessages'
+  | 'olderMessageLoadError'
   | 'sessionCache'
   | 'drafts'
   | 'scrollPositions'
@@ -35,6 +39,10 @@ export const createInitialAppState = (): AppStateData => ({
   messages: [],
   loadingMessages: false,
   messageLoadError: null,
+  hasMoreMessages: false,
+  oldestMessageSequence: null,
+  loadingOlderMessages: false,
+  olderMessageLoadError: null,
   sessionCache: {},
   drafts: {},
   scrollPositions: {},

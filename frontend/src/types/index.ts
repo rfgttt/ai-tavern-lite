@@ -119,6 +119,13 @@ export interface Message {
   updated_at: string
 }
 
+export interface MessagePage {
+  items: Message[]
+  has_more: boolean
+  oldest_sequence: number | null
+  newest_sequence: number | null
+}
+
 export interface Memory {
   id: string
   character_id: string | null
