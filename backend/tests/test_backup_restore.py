@@ -161,6 +161,50 @@ def test_portable_backup_contains_complete_data_assets_and_no_secrets(tmp_path):
         shutil.rmtree(result.cleanup_root, ignore_errors=True)
 
 
+def test_portable_backup_ignores_gitkeep_and_declares_fixed_sensitive_exclusions(tmp_path):
+    source_database = tmp_path / "source" / "ai_tavern.db"
+    _seed_database(
+        source_database,
+        character_name="占位文件测试角色",
+        instance_id="source-instance",
+        api_key="source-secret",
+    )
+    with closing(sqlite3.connect(str(source_database))) as connection:
+        connection.execute("DELETE FROM app_settings WHERE key='custom_headers'")
+        connection.commit()
+
+    source_root = source_database.parent
+    avatars = source_root / "avatars"
+    characters = source_root / "characters"
+    avatars.mkdir(parents=True, exist_ok=True)
+    characters.mkdir(parents=True, exist_ok=True)
+    (avatars / ".gitkeep").write_bytes(b"")
+    (characters / ".gitkeep").write_bytes(b"")
+
+    result = build_backup_archive(
+        database_path=source_database,
+        avatars_dir=avatars,
+        characters_dir=characters,
+        exports_dir=tmp_path / "exports",
+        max_uncompressed_bytes=64 * 1024 * 1024,
+    )
+
+    try:
+        with zipfile.ZipFile(result.archive_path, "r") as archive:
+            manifest = json.loads(archive.read(MANIFEST_ARCHIVE_PATH))
+            names = set(archive.namelist())
+
+        assert "assets/avatars/.gitkeep" not in names
+        assert "assets/characters/.gitkeep" not in names
+        assert manifest["assets"] == []
+        assert manifest["excluded_settings"] == [
+            "api_key",
+            "custom_headers",
+            INSTANCE_SETTING_KEY,
+        ]
+    finally:
+        shutil.rmtree(result.cleanup_root, ignore_errors=True)
+
 def test_restore_staging_preserves_current_machine_secrets_and_identity(tmp_path):
     source_database = tmp_path / "source" / "ai_tavern.db"
     _seed_database(

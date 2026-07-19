@@ -32,6 +32,7 @@ ALLOWED_ASSET_SUFFIXES = {
     "avatars": {".png", ".jpg", ".jpeg", ".webp", ".gif"},
     "characters": {".json", ".png"},
 }
+IGNORED_ASSET_PLACEHOLDERS = {".gitkeep"}
 COUNT_TABLES = {
     "characters": "characters",
     "sessions": "chat_sessions",
@@ -323,6 +324,8 @@ def _safe_asset_files(directory: Path, directory_name: str) -> Iterable[tuple[Pa
             raise BackupError(f"资产目录包含符号链接，已拒绝备份：{path}")
         if not path.is_file():
             continue
+        if path.name.lower() in IGNORED_ASSET_PLACEHOLDERS:
+            continue
         if path.suffix.lower() not in allowed_suffixes:
             raise BackupError(f"资产文件类型不受支持：{path.name}")
         relative = path.relative_to(directory).as_posix()
@@ -372,7 +375,8 @@ def build_backup_archive(
     archive_path = cleanup_root / "backup.zip"
     try:
         _copy_sqlite_database(database_path, snapshot_path)
-        excluded_settings = _sanitize_portable_database(snapshot_path)
+        removed_settings = _sanitize_portable_database(snapshot_path)
+        excluded_settings = sorted(set(removed_settings) | EXACT_SENSITIVE_SETTING_KEYS)
         validation = _validate_database(snapshot_path)
 
         assets: list[dict[str, Any]] = []
