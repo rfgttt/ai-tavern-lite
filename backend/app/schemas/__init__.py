@@ -333,6 +333,37 @@ class SettingsUpdate(BaseModel):
         return self
 
 
+class BackupCurrentStatus(BaseModel):
+    database_path: str
+    exists: bool
+    revision: Optional[str] = None
+    counts: Dict[str, int] = Field(default_factory=dict)
+    integrity: str = "unknown"
+
+
+class PendingRestoreStatus(BaseModel):
+    restore_id: str
+    staged_at: str
+    backup_created_at: str = ""
+    source_app_version: str = ""
+    alembic_revision: str
+    counts: Dict[str, int] = Field(default_factory=dict)
+    asset_count: int = 0
+    restart_required: bool = True
+
+
+class BackupStatusResponse(BaseModel):
+    format_version: int = 1
+    current: BackupCurrentStatus
+    pending_restore: Optional[PendingRestoreStatus] = None
+    portable_backup_excludes: List[str] = Field(default_factory=list)
+
+
+class BackupRestoreResponse(PendingRestoreStatus):
+    success: bool
+    message: str
+
+
 class ConnectionTestResult(BaseModel):
     success: bool
     message: str

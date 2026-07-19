@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from . import branches, characters, chat, diagnostics, groups, health, memory, personas, runtime, selftest, sessions, settings
+from . import backups, branches, characters, chat, diagnostics, groups, health, memory, personas, runtime, selftest, sessions, settings
 
 
 def create_api_router(*, include_diagnostics: bool = True, include_selftest: bool = True) -> APIRouter:
@@ -15,6 +15,7 @@ def create_api_router(*, include_diagnostics: bool = True, include_selftest: boo
     api_router.include_router(personas.router)
     api_router.include_router(groups.router)
     api_router.include_router(branches.router)
+    api_router.include_router(backups.router)
     if include_diagnostics:
         api_router.include_router(diagnostics.router)
     if include_selftest:

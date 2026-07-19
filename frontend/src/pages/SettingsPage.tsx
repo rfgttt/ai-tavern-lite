@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useAppStore } from '@/stores/appStore'
-import { testConnection } from '@/api'
+import { cancelPendingRestore, exportPortableBackup, getBackupStatus, prepareBackupRestore, testConnection } from '@/api'
 import DiagnosticsPanel from '@/components/DiagnosticsPanel'
-import type { ConnectionTestResult } from '@/types'
-import { Settings as SettingsIcon, User, Cpu, Sliders, Brain, Check, AlertCircle, Trash2, X } from 'lucide-react'
+import type { BackupStatus, ConnectionTestResult } from '@/types'
+import { Settings as SettingsIcon, User, Cpu, Sliders, Brain, Check, AlertCircle, Trash2, X, DatabaseBackup, Download, Upload, RotateCcw, ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 interface SectionCardProps {
@@ -65,11 +65,28 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null)
   const [testing, setTesting] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
+  const [backupFile, setBackupFile] = useState<File | null>(null)
+  const [backupBusy, setBackupBusy] = useState<'export' | 'restore' | 'cancel' | null>(null)
+  const [backupNotice, setBackupNotice] = useState<{ success: boolean; message: string } | null>(null)
   const settingsLocked = settings?.settings_writable === false
 
   useEffect(() => {
     fetchSettings()
+    void refreshBackupStatus()
   }, [])
+
+  const refreshBackupStatus = async () => {
+    try {
+      const response = await getBackupStatus()
+      setBackupStatus(response.data)
+    } catch (error: any) {
+      setBackupNotice({
+        success: false,
+        message: error?.response?.data?.detail || error.message || '无法读取备份状态',
+      })
+    }
+  }
 
   useEffect(() => {
     if (settings) {
@@ -117,6 +134,73 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
       setTestResult({ success: true, message: 'API Key 已清除' })
     } catch {
       setTestResult({ success: false, message: '清除 API Key 失败' })
+    }
+  }
+
+  const handleExportBackup = async () => {
+    setBackupBusy('export')
+    setBackupNotice(null)
+    try {
+      const response = await exportPortableBackup()
+      const disposition = String(response.headers['content-disposition'] || '')
+      const match = disposition.match(/filename="?([^";]+)"?/i)
+      const filename = match?.[1] || `ai-tavern-backup-${new Date().toISOString().slice(0, 10)}.zip`
+      const url = URL.createObjectURL(response.data)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      setBackupNotice({ success: true, message: '完整备份已生成。备份不包含 API Key 和自定义认证头。' })
+    } catch (error: any) {
+      setBackupNotice({
+        success: false,
+        message: error?.response?.data?.detail || error.message || '创建备份失败',
+      })
+    } finally {
+      setBackupBusy(null)
+    }
+  }
+
+  const handlePrepareRestore = async () => {
+    if (!backupFile) return
+    const confirmed = window.confirm(
+      '恢复会在下次启动时替换当前角色、会话、消息、状态和记忆。当前 API Key 会保留，系统也会先创建恢复前安全快照。继续吗？',
+    )
+    if (!confirmed) return
+    setBackupBusy('restore')
+    setBackupNotice(null)
+    try {
+      const response = await prepareBackupRestore(backupFile)
+      setBackupNotice({ success: true, message: response.data.message })
+      setBackupFile(null)
+      await refreshBackupStatus()
+    } catch (error: any) {
+      setBackupNotice({
+        success: false,
+        message: error?.response?.data?.detail || error.message || '准备恢复失败',
+      })
+    } finally {
+      setBackupBusy(null)
+    }
+  }
+
+  const handleCancelRestore = async () => {
+    setBackupBusy('cancel')
+    setBackupNotice(null)
+    try {
+      const response = await cancelPendingRestore()
+      setBackupNotice({ success: true, message: response.data.message })
+      await refreshBackupStatus()
+    } catch (error: any) {
+      setBackupNotice({
+        success: false,
+        message: error?.response?.data?.detail || error.message || '取消恢复失败',
+      })
+    } finally {
+      setBackupBusy(null)
     }
   }
 
@@ -327,6 +411,94 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
             </div>
           </SectionCard>
           </fieldset>
+
+          <SectionCard title="完整备份与恢复" icon={<DatabaseBackup size={16} />}>
+            <div className="rounded-xl border border-tavern-border-subtle bg-tavern-bg-tertiary/25 p-3.5">
+              <div className="flex items-start gap-2.5">
+                <ShieldCheck size={17} className="mt-0.5 flex-shrink-0 text-emerald-400" />
+                <div className="text-xs text-tavern-text-secondary">
+                  <p className="font-medium text-tavern-text-primary">可移植备份不会导出密钥</p>
+                  <p className="mt-1 leading-5 text-tavern-text-muted">包含角色、世界书、Persona、会话、消息、运行时状态、时间线、记忆、群组和头像。API Key、自定义认证头、日志与存储身份不会进入 ZIP。</p>
+                </div>
+              </div>
+            </div>
+
+            {backupStatus && (
+              <div data-testid="backup-current-summary" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  ['角色', backupStatus.current.counts.characters || 0],
+                  ['会话', backupStatus.current.counts.sessions || 0],
+                  ['消息', backupStatus.current.counts.messages || 0],
+                  ['记忆', backupStatus.current.counts.memories || 0],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="rounded-lg border border-tavern-border-subtle bg-tavern-bg-deep/40 p-2.5 text-center">
+                    <div className="text-base font-semibold text-tavern-text-primary">{value}</div>
+                    <div className="text-[11px] text-tavern-text-muted">{label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                data-testid="export-full-backup"
+                onClick={handleExportBackup}
+                disabled={backupBusy !== null}
+                className="btn btn-primary"
+              >
+                <Download size={15} /> {backupBusy === 'export' ? '正在生成...' : '下载完整备份'}
+              </button>
+              <span className="text-[11px] text-tavern-text-muted">建议在阶段性开发完成后和长期剧情开始前各保存一份。</span>
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-tavern-border-subtle p-3.5">
+              <label className="block text-xs font-medium text-tavern-text-secondary" htmlFor="restore-backup-file">选择 AI Tavern 备份 ZIP</label>
+              <input
+                id="restore-backup-file"
+                data-testid="restore-backup-file"
+                type="file"
+                accept=".zip,application/zip"
+                onChange={(event) => setBackupFile(event.target.files?.[0] || null)}
+                className="block w-full text-xs text-tavern-text-secondary file:mr-3 file:rounded-lg file:border-0 file:bg-tavern-gold-900/30 file:px-3 file:py-2 file:text-xs file:text-tavern-gold-300"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="prepare-full-restore"
+                  onClick={handlePrepareRestore}
+                  disabled={!backupFile || backupBusy !== null || Boolean(backupStatus?.pending_restore)}
+                  className="btn btn-secondary"
+                >
+                  <Upload size={15} /> {backupBusy === 'restore' ? '正在验证...' : '验证并准备恢复'}
+                </button>
+                <span className="text-[11px] text-tavern-text-muted">上传只会暂存；停止服务并重新启动后才会替换数据。</span>
+              </div>
+            </div>
+
+            {backupStatus?.pending_restore && (
+              <div data-testid="pending-restore" className="rounded-xl border border-amber-700/30 bg-amber-900/15 p-3.5 text-xs text-amber-100">
+                <p className="font-medium">已有已验证的待恢复任务</p>
+                <p className="mt-1 text-amber-100/70">备份时间：{backupStatus.pending_restore.backup_created_at || '未知'}；角色 {backupStatus.pending_restore.counts.characters || 0}，会话 {backupStatus.pending_restore.counts.sessions || 0}，消息 {backupStatus.pending_restore.counts.messages || 0}。</p>
+                <p className="mt-1 text-amber-100/70">请停止服务并重新启动。启动前会自动保存当前数据库和头像，失败会自动回滚。</p>
+                <button
+                  type="button"
+                  data-testid="cancel-pending-restore"
+                  onClick={handleCancelRestore}
+                  disabled={backupBusy !== null}
+                  className="btn btn-secondary mt-3"
+                >
+                  <RotateCcw size={14} /> {backupBusy === 'cancel' ? '正在取消...' : '取消待恢复任务'}
+                </button>
+              </div>
+            )}
+
+            {backupNotice && (
+              <div className={`rounded-lg border p-3 text-xs ${backupNotice.success ? 'border-emerald-700/30 bg-emerald-900/15 text-emerald-300' : 'border-tavern-rose-600/30 bg-tavern-rose-600/15 text-tavern-rose-400'}`}>
+                {backupNotice.message}
+              </div>
+            )}
+          </SectionCard>
 
           {settings?.diagnostics_enabled && <DiagnosticsPanel />}
 

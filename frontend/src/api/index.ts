@@ -23,6 +23,8 @@ import type {
   Persona,
   CharacterGroup,
   SessionBranch,
+  BackupStatus,
+  BackupRestoreResult,
 } from '@/types'
 
 const api = axios.create({
@@ -187,6 +189,20 @@ export const updateSettings = (data: Partial<AppSettings> & { api_key?: string; 
   api.put<AppSettings>('/settings', data)
 export const testConnection = (data?: Partial<AppSettings> & { api_key?: string }) =>
   api.post<ConnectionTestResult>('/settings/test-connection', data || {})
+
+
+export const getBackupStatus = () => api.get<BackupStatus>('/backups/status')
+export const exportPortableBackup = () =>
+  api.post<Blob>('/backups/export', undefined, { responseType: 'blob' })
+export const prepareBackupRestore = (file: File) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return api.post<BackupRestoreResult>('/backups/restore', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+export const cancelPendingRestore = () =>
+  api.delete<{ success: boolean; cancelled: boolean; message: string }>('/backups/restore/pending')
 
 
 // Diagnostics

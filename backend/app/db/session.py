@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 import shutil
@@ -12,6 +13,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from ..core.config import settings
 from ..core.logging import logger
 from .storage_guard import finalize_storage_identity, prepare_storage
+from ..services.backup.service import commit_pending_restore, rollback_pending_restore
 
 Base = declarative_base()
 
@@ -71,9 +73,10 @@ def backup_database(target_engine: Engine = engine) -> Path | None:
     backup_path = settings.backups_dir / f"ai_tavern_backup_{timestamp}.db"
 
     try:
-        with sqlite3.connect(str(db_file), timeout=30) as source:
-            with sqlite3.connect(str(backup_path), timeout=30) as destination:
+        with closing(sqlite3.connect(str(db_file), timeout=30)) as source:
+            with closing(sqlite3.connect(str(backup_path), timeout=30)) as destination:
                 source.backup(destination)
+                destination.commit()
         logger.info("Database backup created: %s", backup_path)
     except Exception as error:
         backup_path.unlink(missing_ok=True)
@@ -143,13 +146,20 @@ def init_db(target_engine: Engine = engine):
         validation = validate_database_schema(target_engine)
         storage_status = finalize_storage_identity(target_engine, storage_preflight)
     except Exception:
-        _restore_database_after_failed_migration(
-            target_engine=target_engine,
-            database_path=database_path,
-            backup_path=backup_path,
-            database_existed=database_existed,
-        )
+        if storage_preflight.restore_application is not None:
+            target_engine.dispose()
+            rollback_pending_restore(storage_preflight.restore_application)
+        else:
+            _restore_database_after_failed_migration(
+                target_engine=target_engine,
+                database_path=database_path,
+                backup_path=backup_path,
+                database_existed=database_existed,
+            )
         raise
+
+    if storage_preflight.restore_application is not None:
+        commit_pending_restore(storage_preflight.restore_application)
 
     logger.info(
         "Database initialized successfully revision=%s tables=%s path=%s instance=%s counts=%s",

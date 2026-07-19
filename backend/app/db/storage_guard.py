@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine, make_url
 
 from ..core.logging import logger
+from ..services.backup.service import RestoreApplication, apply_pending_restore
 
 
 REGISTRY_FORMAT_VERSION = 1
@@ -42,6 +43,7 @@ class StoragePreflight:
     registry: dict[str, Any] | None = None
     adopted_from: str | None = None
     first_run: bool = False
+    restore_application: RestoreApplication | None = None
 
 
 @dataclass
@@ -222,12 +224,33 @@ def prepare_storage(runtime_settings: Any) -> StoragePreflight:
                 "The database file does not match the registered storage identity. "
                 f"Database: {database_path}. No data was modified."
             )
+
+        restore_application = apply_pending_restore(
+            data_dir=Path(runtime_settings.data_dir).expanduser(),
+            backups_dir=Path(getattr(runtime_settings, "backups_dir", Path(runtime_settings.data_dir) / "backups")).expanduser(),
+            database_path=database_path,
+            registry=registry,
+        )
+        if restore_application is not None:
+            try:
+                _validate_sqlite_file(database_path)
+                restored_id = _read_instance_id_from_file(database_path)
+                if restored_id != registered_id:
+                    raise StorageGuardError(
+                        "Restored database does not match the registered storage identity. "
+                        "The pre-restore safety snapshot was preserved."
+                    )
+            except Exception:
+                from ..services.backup.service import rollback_pending_restore
+                rollback_pending_restore(restore_application)
+                raise
         return StoragePreflight(
             managed=True,
             database_path=database_path,
             registry_path=registry_path,
             registry=registry,
             first_run=False,
+            restore_application=restore_application,
         )
 
     adopted_from: str | None = None

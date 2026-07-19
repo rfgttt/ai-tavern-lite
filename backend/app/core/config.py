@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     database_url: str = _default_database_url()
     storage_guard_enabled: bool = True
     max_upload_size_mb: int = 20
+    max_backup_size_mb: int = 256
+    max_backup_uncompressed_mb: int = 1024
+    max_backup_entries: int = 10_000
     max_json_body_bytes: int = 2 * 1024 * 1024
     max_request_body_bytes: int = 24 * 1024 * 1024
 
@@ -168,6 +171,10 @@ class Settings(BaseSettings):
     def validate_runtime_security(self) -> None:
         if self.max_upload_size_mb <= 0:
             raise RuntimeError("AI_TAVERN_MAX_UPLOAD_SIZE_MB 必须大于 0")
+        if self.max_backup_size_mb <= 0 or self.max_backup_uncompressed_mb <= 0:
+            raise RuntimeError("备份大小限制必须大于 0")
+        if self.max_backup_entries <= 0:
+            raise RuntimeError("AI_TAVERN_MAX_BACKUP_ENTRIES 必须大于 0")
         if self.max_json_body_bytes <= 0 or self.max_request_body_bytes <= 0:
             raise RuntimeError("请求体限制必须大于 0")
         if self.max_concurrent_generations <= 0:

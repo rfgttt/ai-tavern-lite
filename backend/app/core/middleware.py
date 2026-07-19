@@ -90,7 +90,10 @@ class RequestSizeLimitMiddleware:
         if "application/json" in content_type:
             limit = settings.max_json_body_bytes
         elif "multipart/form-data" in content_type:
-            limit = settings.max_upload_size_mb * 1024 * 1024 + 1024 * 1024
+            if scope.get("path", "") == "/api/backups/restore":
+                limit = settings.max_backup_size_mb * 1024 * 1024 + 1024 * 1024
+            else:
+                limit = settings.max_upload_size_mb * 1024 * 1024 + 1024 * 1024
 
         if content_length:
             try:

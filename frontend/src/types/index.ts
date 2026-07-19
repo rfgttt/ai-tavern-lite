@@ -135,6 +135,37 @@ export interface AppSettings {
   selftest_enabled: boolean
 }
 
+export interface BackupDataSummary {
+  database_path: string
+  exists: boolean
+  revision: string | null
+  counts: Record<string, number>
+  integrity: string
+}
+
+export interface PendingRestoreStatus {
+  restore_id: string
+  staged_at: string
+  backup_created_at: string
+  source_app_version: string
+  alembic_revision: string
+  counts: Record<string, number>
+  asset_count: number
+  restart_required: boolean
+}
+
+export interface BackupStatus {
+  format_version: number
+  current: BackupDataSummary
+  pending_restore: PendingRestoreStatus | null
+  portable_backup_excludes: string[]
+}
+
+export interface BackupRestoreResult extends PendingRestoreStatus {
+  success: boolean
+  message: string
+}
+
 export type RuntimeMode = 'relationship' | 'adventure' | 'general'
 
 export interface RuntimeProfile {
