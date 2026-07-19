@@ -1,17 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Literal
 import json
 import os
 from pathlib import Path
 import uuid
+import shutil
 
 from ..db.session import get_db
 from ..db.models import Character, ChatSession, Message, Memory
 from ..schemas import (
     CharacterResponse, CharacterUpdate, CharacterCreate,
-    CharacterSessionOptionsResponse, Lorebook, LorebookEntry
+    CharacterSessionOptionsResponse, CharacterCardSecurityScanResponse,
+    Lorebook, LorebookEntry
 )
 from ..services.character_parser.parser import (
     parse_json_character, parse_png_character, export_character_v3,
@@ -22,6 +24,12 @@ from ..core.logging import logger
 from ..services.runtime.session_service import character_profile
 from ..services.runtime.state_engine import build_initial_state
 from ..services.settings_service import SettingsService
+from ..services.card_security import (
+    apply_security_metadata,
+    is_quarantined,
+    sanitize_character_card,
+    scan_character_card,
+)
 
 router = APIRouter(prefix="/characters", tags=["characters"])
 
@@ -108,73 +116,189 @@ def create_character(
     return character
 
 
+@router.post("/security/scan", response_model=CharacterCardSecurityScanResponse)
+async def scan_character_upload(file: UploadFile = File(...)):
+    """Statically scan a JSON or PNG card without executing code or fetching URLs."""
+    content = await _read_upload_limited(file)
+    filename = file.filename or "character-card"
+    normalized, raw_data, _ = _parse_character_upload(filename, content)
+    report = scan_character_card(normalized.to_dict(), raw_data)
+    return {
+        "filename": filename,
+        "card_name": normalized.name or "未知角色",
+        "report": report,
+    }
+
+
+def _parse_character_upload(filename: str, content: bytes):
+    filename_lower = filename.lower()
+    if filename_lower.endswith(".json"):
+        try:
+            json_data = json.loads(content.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            raise HTTPException(status_code=400, detail=f"JSON 解析失败: {error}")
+        normalized, raw_data = parse_json_character(json_data)
+        return normalized, raw_data, None
+    if filename_lower.endswith(".png"):
+        try:
+            normalized, raw_data, avatar_bytes = parse_png_character(content)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+        return normalized, raw_data, avatar_bytes
+    raise HTTPException(status_code=400, detail="不支持的文件格式，请上传 .json 或 .png 角色卡文件")
+
+
+def _security_mode_payload(normalized: dict, raw_data: dict, report: dict, mode: str):
+    if not report.get("can_import_safe", True):
+        raise HTTPException(status_code=400, detail="角色卡结构过深或过大，已阻止导入")
+    if mode == "safe_copy":
+        return sanitize_character_card(normalized, raw_data, report)[:2]
+    if mode == "quarantine":
+        quarantined = apply_security_metadata(normalized, report, "quarantine")
+        return quarantined, raw_data
+    if mode == "original":
+        if not report.get("can_import_original", False):
+            raise HTTPException(
+                status_code=400,
+                detail="该角色卡包含高风险提示词注入或可执行内容，只能隔离保存或生成安全副本",
+            )
+        reviewed = apply_security_metadata(normalized, report, "original_reviewed")
+        return reviewed, raw_data
+    raise HTTPException(status_code=400, detail="security_mode 必须是 safe_copy、quarantine 或 original")
+
+
 @router.post("/import", response_model=CharacterResponse)
 async def import_character(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    security_mode: Literal["safe_copy", "quarantine", "original"] = Form("safe_copy"),
+    db: Session = Depends(get_db),
 ):
-    """Import a character card (JSON or PNG)."""
+    """Import a card after applying the selected security policy."""
     content = await _read_upload_limited(file)
-
-    filename = file.filename or ""
-    filename_lower = filename.lower()
+    filename = file.filename or "character-card"
+    avatar_path = ""
+    avatar_file: Path | None = None
 
     try:
-        if filename_lower.endswith(".json"):
-            # JSON character card
-            try:
-                json_data = json.loads(content.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                raise HTTPException(status_code=400, detail=f"JSON 解析失败: {e}")
-
-            normalized, raw_data = parse_json_character(json_data)
-            avatar_path = ""
-
-        elif filename_lower.endswith(".png"):
-            # PNG character card
-            try:
-                normalized, raw_data, avatar_bytes = parse_png_character(content)
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-
-            # Save avatar
-            avatar_id = str(uuid.uuid4())
-            avatar_filename = f"{avatar_id}.png"
-            avatar_path_full = settings.avatars_dir / avatar_filename
-            with open(avatar_path_full, "wb") as f:
-                f.write(avatar_bytes)
-            avatar_path = f"/avatars/{avatar_filename}"
-
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="不支持的文件格式，请上传 .json 或 .png 角色卡文件"
-            )
-
-        # Create character in DB
-        character = Character(
-            name=normalized.name or "未知角色",
-            description=normalized.description,
-            personality=normalized.personality,
-            scenario=normalized.scenario,
-            first_message=normalized.first_mes,
-            normalized_json=json.dumps(normalized.to_dict(), ensure_ascii=False),
-            raw_json=json.dumps(raw_data, ensure_ascii=False),
-            avatar_path=avatar_path
+        normalized, raw_data, avatar_bytes = _parse_character_upload(filename, content)
+        normalized_dict = normalized.to_dict()
+        report = scan_character_card(normalized_dict, raw_data)
+        normalized_dict, stored_raw = _security_mode_payload(
+            normalized_dict, raw_data, report, security_mode
         )
 
+        if avatar_bytes is not None:
+            avatar_filename = f"{uuid.uuid4()}.png"
+            avatar_file = settings.avatars_dir / avatar_filename
+            with avatar_file.open("wb") as output:
+                output.write(avatar_bytes)
+            avatar_path = f"/avatars/{avatar_filename}"
+
+        display_name = str(normalized_dict.get("name") or "未知角色")
+        if security_mode == "quarantine":
+            suffix = "（隔离）"
+            display_name = (display_name[: max(1, 200 - len(suffix))] + suffix)[:200]
+
+        character = Character(
+            name=display_name,
+            description=str(normalized_dict.get("description") or ""),
+            personality=str(normalized_dict.get("personality") or ""),
+            scenario=str(normalized_dict.get("scenario") or ""),
+            first_message=str(normalized_dict.get("first_mes") or ""),
+            normalized_json=json.dumps(normalized_dict, ensure_ascii=False),
+            raw_json=json.dumps(stored_raw, ensure_ascii=False),
+            avatar_path=avatar_path,
+        )
         db.add(character)
         db.commit()
         db.refresh(character)
-
-        logger.info(f"Character imported: {character.name} (ID: {character.id})")
+        logger.info(
+            "Character imported: %s (ID: %s) security_mode=%s risk=%s",
+            character.name, character.id, security_mode, report.get("risk_level"),
+        )
         return character
-
     except HTTPException:
+        if avatar_file and avatar_file.exists():
+            avatar_file.unlink(missing_ok=True)
         raise
-    except Exception as e:
-        logger.error(f"Character import failed: {e}")
-        raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
+    except Exception as error:
+        db.rollback()
+        if avatar_file and avatar_file.exists():
+            avatar_file.unlink(missing_ok=True)
+        logger.error("Character import failed: %s", error)
+        raise HTTPException(status_code=500, detail=f"导入失败: {error}")
+
+
+@router.get("/{character_id}/security", response_model=CharacterCardSecurityScanResponse)
+def get_character_security(character_id: str, db: Session = Depends(get_db)):
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    try:
+        normalized = json.loads(character.normalized_json) if character.normalized_json else {}
+        raw_data = json.loads(character.raw_json) if character.raw_json else normalized
+    except (json.JSONDecodeError, TypeError):
+        normalized, raw_data = {}, {}
+    return {
+        "filename": f"{character.name}.json",
+        "card_name": character.name,
+        "report": scan_character_card(normalized, raw_data),
+    }
+
+
+@router.post("/{character_id}/security/safe-copy", response_model=CharacterResponse, status_code=201)
+def create_character_safe_copy(character_id: str, db: Session = Depends(get_db)):
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    try:
+        normalized = json.loads(character.normalized_json) if character.normalized_json else {}
+        raw_data = json.loads(character.raw_json) if character.raw_json else normalized
+    except (json.JSONDecodeError, TypeError):
+        raise HTTPException(status_code=400, detail="角色卡数据损坏，无法生成安全副本")
+
+    report = scan_character_card(normalized, raw_data)
+    if not report.get("can_import_safe", True):
+        raise HTTPException(status_code=400, detail="角色卡结构过深或过大，无法生成安全副本")
+    safe, safe_raw, _ = sanitize_character_card(normalized, raw_data, report)
+    suffix = "（安全副本）"
+    base_name = str(safe.get("name") or character.name or "未知角色")
+    safe_name = (base_name[: max(1, 200 - len(suffix))] + suffix)[:200]
+    safe["name"] = safe_name
+    if isinstance(safe_raw.get("data"), dict):
+        safe_raw["data"]["name"] = safe_name
+    else:
+        safe_raw["name"] = safe_name
+
+    avatar_path = ""
+    copied_avatar: Path | None = None
+    if character.avatar_path:
+        source_avatar = settings.avatars_dir / Path(character.avatar_path).name
+        if source_avatar.exists():
+            copied_avatar = settings.avatars_dir / f"{uuid.uuid4()}{source_avatar.suffix.lower() or '.png'}"
+            shutil.copy2(source_avatar, copied_avatar)
+            avatar_path = f"/avatars/{copied_avatar.name}"
+
+    try:
+        clone = Character(
+            name=safe_name,
+            description=str(safe.get("description") or ""),
+            personality=str(safe.get("personality") or ""),
+            scenario=str(safe.get("scenario") or ""),
+            first_message=str(safe.get("first_mes") or ""),
+            normalized_json=json.dumps(safe, ensure_ascii=False),
+            raw_json=json.dumps(safe_raw, ensure_ascii=False),
+            avatar_path=avatar_path,
+        )
+        db.add(clone)
+        db.commit()
+        db.refresh(clone)
+        return clone
+    except Exception:
+        db.rollback()
+        if copied_avatar and copied_avatar.exists():
+            copied_avatar.unlink(missing_ok=True)
+        raise
 
 
 @router.get("/{character_id}/compatibility")
@@ -205,6 +329,11 @@ def get_character_session_options(character_id: str, db: Session = Depends(get_d
         normalized = {}
     if not isinstance(normalized, dict):
         normalized = {}
+    if is_quarantined(normalized):
+        raise HTTPException(
+            status_code=423,
+            detail="该角色卡处于安全隔离状态。请先在角色菜单中生成安全副本，再创建会话。",
+        )
 
     settings_data = SettingsService.get_all_settings(db)
     username = settings_data.get("username", "用户")

@@ -62,8 +62,8 @@ export const createCharacterSlice: AppStoreSlice<CharacterSlice> = (set, get) =>
     return response.data
   },
 
-  importCharacter: async (file) => {
-    const response = await api.importCharacter(file)
+  importCharacter: async (file, securityMode = 'safe_copy') => {
+    const response = await api.importCharacter(file, securityMode)
     await get().fetchCharacters()
     return response.data
   },

@@ -74,6 +74,38 @@ class CharacterResponse(CharacterBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CardSecurityFinding(BaseModel):
+    id: str
+    severity: Literal["info", "warning", "high", "blocked"]
+    category: str
+    title: str
+    message: str
+    path: str
+    evidence: str = ""
+
+
+class CardSecurityReport(BaseModel):
+    format_version: int = 1
+    card_sha256: str
+    risk_level: Literal["safe", "notice", "high", "blocked"]
+    summary: str
+    counts: Dict[str, int] = Field(default_factory=dict)
+    findings: List[CardSecurityFinding] = Field(default_factory=list)
+    external_hosts: List[str] = Field(default_factory=list)
+    has_active_content: bool = False
+    prompt_injection_detected: bool = False
+    can_import_original: bool = False
+    can_import_safe: bool = True
+    recommended_action: Literal["original", "safe_copy"] = "safe_copy"
+    scanner_guarantees: List[str] = Field(default_factory=list)
+
+
+class CharacterCardSecurityScanResponse(BaseModel):
+    filename: str
+    card_name: str
+    report: CardSecurityReport
+
+
 class CharacterExport(BaseModel):
     id: str
     name: str

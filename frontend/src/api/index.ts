@@ -25,6 +25,8 @@ import type {
   SessionBranch,
   BackupStatus,
   BackupRestoreResult,
+  CharacterCardSecurityScan,
+  CharacterSecurityImportMode,
 } from '@/types'
 
 const api = axios.create({
@@ -43,13 +45,25 @@ export const createCharacter = (data: CharacterDraft) => api.post<Character>('/c
 export const getCharacter = (id: string) => api.get<Character>(`/characters/${id}`)
 export const getCharacterSessionOptions = (id: string) => api.get<CharacterSessionOptions>(`/characters/${id}/session-options`)
 export const getCharacterCompatibility = (id: string) => api.get<CardCompatibilityReport>(`/characters/${id}/compatibility`)
-export const importCharacter = (file: File) => {
+export const scanCharacterCard = (file: File) => {
   const formData = new FormData()
   formData.append('file', file)
+  return api.post<CharacterCardSecurityScan>('/characters/security/scan', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+export const importCharacter = (file: File, securityMode: CharacterSecurityImportMode = 'safe_copy') => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('security_mode', securityMode)
   return api.post<Character>('/characters/import', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
+export const getCharacterSecurity = (id: string) =>
+  api.get<CharacterCardSecurityScan>(`/characters/${id}/security`)
+export const createCharacterSafeCopy = (id: string) =>
+  api.post<Character>(`/characters/${id}/security/safe-copy`)
 export const updateCharacter = (id: string, data: Partial<Character> & { normalized_json?: string }) =>
   api.put<Character>(`/characters/${id}`, data)
 export const deleteCharacter = (id: string) => api.delete(`/characters/${id}`)

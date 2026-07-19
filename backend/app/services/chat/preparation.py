@@ -19,6 +19,7 @@ from ..prompt_builder.builder import PromptBuilder
 from ..prompt_builder.inspection import build_prompt_inspection
 from ..runtime.session_service import ensure_session_state, json_load
 from ..settings_service import SettingsService
+from ..card_security import runtime_safe_normalized
 from .context import ChatStreamContext
 from .errors import ChatServiceError
 from .helpers import (
@@ -437,10 +438,11 @@ class ChatPreparationService:
     @staticmethod
     def _normalized_character(character: Character) -> dict[str, Any]:
         try:
-            return (
+            parsed = (
                 json.loads(character.normalized_json)
                 if character.normalized_json
                 else {}
             )
+            return runtime_safe_normalized(parsed)
         except (json.JSONDecodeError, TypeError):
             return {}

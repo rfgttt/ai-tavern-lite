@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import { appSettingsFixture, characterSessionOptionsFixture, charactersFixture, groupsFixture, lorebookFixture, personasFixture, sessionsFixture } from './fixtures'
+import { appSettingsFixture, characterSecurityScanFixture, characterSessionOptionsFixture, charactersFixture, groupsFixture, lorebookFixture, personasFixture, sessionsFixture } from './fixtures'
 
 export const handlers = [
   http.get('*/api/settings', () => HttpResponse.json(appSettingsFixture)),
@@ -50,6 +50,17 @@ export const handlers = [
   })),
   http.get('*/api/diagnostics/latest', () => HttpResponse.json(null)),
   http.get('*/api/characters', () => HttpResponse.json(charactersFixture)),
+  http.post('*/api/characters/security/scan', () => HttpResponse.json(characterSecurityScanFixture)),
+  http.get('*/api/characters/:characterId/security', ({ params }) => HttpResponse.json({ ...characterSecurityScanFixture, card_name: charactersFixture.find((item) => item.id === params.characterId)?.name || characterSecurityScanFixture.card_name })),
+  http.post('*/api/characters/:characterId/security/safe-copy', ({ params }) => {
+    const existing = charactersFixture.find((item) => item.id === params.characterId) || charactersFixture[0]
+    return HttpResponse.json({ ...existing, id: `${existing.id}-safe`, name: `${existing.name}（安全副本）` }, { status: 201 })
+  }),
+  http.post('*/api/characters/import', async ({ request }) => {
+    const form = await request.formData()
+    const mode = String(form.get('security_mode') || 'safe_copy')
+    return HttpResponse.json({ ...charactersFixture[0], id: `imported-${mode}`, name: mode === 'safe_copy' ? '风险角色卡' : '风险角色卡（隔离）' })
+  }),
   http.get('*/api/characters/:characterId/session-options', ({ params }) => {
     const character = charactersFixture.find((item) => item.id === params.characterId) || charactersFixture[0]
     return HttpResponse.json({

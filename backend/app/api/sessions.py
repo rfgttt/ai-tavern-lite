@@ -16,6 +16,7 @@ from ..core.logging import logger
 from ..services.runtime.session_service import ensure_session_state
 from ..services.runtime.state_engine import serialize_state_document
 from ..services.rendering.message_ast import parse_message_ast
+from ..services.card_security import is_quarantined
 
 router = APIRouter(tags=["sessions"])
 
@@ -40,6 +41,15 @@ def create_session(session_data: ChatSessionCreate, db: Session = Depends(get_db
     character = db.query(Character).filter(Character.id == session_data.character_id).first()
     if not character:
         raise HTTPException(status_code=404, detail="角色不存在")
+    try:
+        normalized = json.loads(character.normalized_json) if character.normalized_json else {}
+    except (json.JSONDecodeError, TypeError):
+        normalized = {}
+    if is_quarantined(normalized):
+        raise HTTPException(
+            status_code=423,
+            detail="该角色卡处于安全隔离状态，不能创建会话。请先生成安全副本。",
+        )
 
     persona_id = session_data.persona_id
     if persona_id:

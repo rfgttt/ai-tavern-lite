@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Brain,
@@ -13,6 +13,7 @@ import {
   Plus,
   Search,
   Settings,
+  ShieldCheck,
   Trash2,
   Upload,
   UserPlus,
@@ -22,9 +23,21 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
-import { exportCharacter as exportCharacterApi, exportSession as exportSessionApi } from '@/api'
+import {
+  createCharacterSafeCopy as createCharacterSafeCopyApi,
+  exportCharacter as exportCharacterApi,
+  exportSession as exportSessionApi,
+  getCharacterSecurity as getCharacterSecurityApi,
+  scanCharacterCard as scanCharacterCardApi,
+} from '@/api'
 import { useAppStore } from '@/stores/appStore'
-import type { Character, CharacterGroup, SessionCreateOptions } from '@/types'
+import type {
+  Character,
+  CharacterCardSecurityScan,
+  CharacterGroup,
+  CharacterSecurityImportMode,
+  SessionCreateOptions,
+} from '@/types'
 import { getErrorMessage } from '@/lib/errors'
 import { getModelConfigurationIssue } from '@/lib/modelConfig'
 import PersonaManager from './PersonaManager'
@@ -33,12 +46,18 @@ import BranchManager from './BranchManager'
 import CharacterManager from './CharacterManager'
 import NewSessionWizard from './NewSessionWizard'
 import ConfirmDialog from './ui/ConfirmDialog'
+import CharacterSecurityDialog from './CharacterSecurityDialog'
 import { useToast } from './ui/ToastProvider'
 
 type CharacterEditorState = {
   mode: 'create' | 'edit'
   character: Character | null
 } | null
+
+type SecurityDialogState =
+  | { kind: 'import'; file: File; scan: CharacterCardSecurityScan }
+  | { kind: 'existing'; character: Character; scan: CharacterCardSecurityScan }
+  | null
 
 const downloadJson = (data: unknown, filename: string) => {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' })
@@ -83,6 +102,9 @@ export default function Sidebar() {
   const [pendingDeleteCharacter, setPendingDeleteCharacter] = useState<Character | null>(null)
   const [deletingCharacter, setDeletingCharacter] = useState(false)
   const [newSessionWizard, setNewSessionWizard] = useState<{ groupId?: string } | null>(null)
+  const [securityDialog, setSecurityDialog] = useState<SecurityDialogState>(null)
+  const [securityBusy, setSecurityBusy] = useState(false)
+  const importInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     void fetchCharacters().catch((error) => showToast(getErrorMessage(error, '角色列表加载失败'), 'error'))
@@ -92,22 +114,66 @@ export default function Sidebar() {
     character.name.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
-  const handleImportClick = () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.json,.png'
-    input.onchange = async (event) => {
-      const file = (event.target as HTMLInputElement).files?.[0]
-      if (!file) return
-      try {
-        const character = await useAppStore.getState().importCharacter(file)
-        selectCharacter(character)
-        showToast(`已导入角色“${character.name}”`, 'success')
-      } catch (error) {
-        showToast(getErrorMessage(error, '角色导入失败'), 'error')
-      }
+  const handleImportClick = () => importInputRef.current?.click()
+
+  const handleImportFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    try {
+      const response = await scanCharacterCardApi(file)
+      setSecurityDialog({ kind: 'import', file, scan: response.data })
+    } catch (error) {
+      showToast(getErrorMessage(error, '角色卡安全扫描失败'), 'error')
     }
-    input.click()
+  }
+
+  const importScannedCharacter = async (mode: CharacterSecurityImportMode) => {
+    if (securityDialog?.kind !== 'import') return
+    setSecurityBusy(true)
+    try {
+      const character = await useAppStore.getState().importCharacter(securityDialog.file, mode)
+      if (mode !== 'quarantine') selectCharacter(character)
+      setSecurityDialog(null)
+      showToast(
+        mode === 'safe_copy'
+          ? `已安全导入角色“${character.name}”`
+          : mode === 'quarantine'
+            ? `已隔离保存角色“${character.name}”`
+            : `已原样导入角色“${character.name}”`,
+        mode === 'quarantine' ? 'info' : 'success',
+      )
+    } catch (error) {
+      showToast(getErrorMessage(error, '角色导入失败'), 'error')
+    } finally {
+      setSecurityBusy(false)
+    }
+  }
+
+  const inspectExistingCharacter = async (character: Character) => {
+    setCharacterMenuId(null)
+    try {
+      const response = await getCharacterSecurityApi(character.id)
+      setSecurityDialog({ kind: 'existing', character, scan: response.data })
+    } catch (error) {
+      showToast(getErrorMessage(error, '角色卡安全检查失败'), 'error')
+    }
+  }
+
+  const createExistingSafeCopy = async () => {
+    if (securityDialog?.kind !== 'existing') return
+    setSecurityBusy(true)
+    try {
+      const response = await createCharacterSafeCopyApi(securityDialog.character.id)
+      await fetchCharacters()
+      selectCharacter(response.data)
+      setSecurityDialog(null)
+      showToast(`已创建“${response.data.name}”`, 'success')
+    } catch (error) {
+      showToast(getErrorMessage(error, '安全副本创建失败'), 'error')
+    } finally {
+      setSecurityBusy(false)
+    }
   }
 
   const closeMobileSidebar = () => {
@@ -260,6 +326,14 @@ export default function Sidebar() {
             <div className="flex items-center justify-between mb-2.5 px-1">
               <span className="section-label mb-0">角色名册</span>
               <div className="flex items-center gap-0.5">
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".json,.png"
+                  className="sr-only"
+                  data-testid="character-card-file-input"
+                  onChange={(event) => void handleImportFileChange(event)}
+                />
                 <button type="button" onClick={handleImportClick} className="btn-icon p-1" title="导入角色卡"><Upload size={14} /></button>
                 <button type="button" onClick={() => setCharacterEditor({ mode: 'create', character: null })} className="btn-icon p-1" title="新建角色"><UserPlus size={14} /></button>
               </div>
@@ -305,6 +379,7 @@ export default function Sidebar() {
                     {characterMenuId === character.id ? (
                       <div className="absolute right-1 top-10 z-50 min-w-32 rounded-lg border border-tavern-border-subtle bg-tavern-bg-secondary shadow-xl p-1">
                         <button type="button" className="sidebar-item w-full text-xs" onClick={() => { setCharacterEditor({ mode: 'edit', character }); setCharacterMenuId(null) }}><Pencil size={13}/><span>编辑角色</span></button>
+                        <button type="button" className="sidebar-item w-full text-xs" onClick={() => void inspectExistingCharacter(character)}><ShieldCheck size={13}/><span>安全检查</span></button>
                         <button type="button" className="sidebar-item w-full text-xs" onClick={() => void handleExportCharacter(character)}><Download size={13}/><span>导出角色</span></button>
                         <button type="button" className="sidebar-item w-full text-xs text-red-300" onClick={() => { setPendingDeleteCharacter(character); setCharacterMenuId(null) }}><Trash2 size={13}/><span>删除角色</span></button>
                       </div>
@@ -372,6 +447,19 @@ export default function Sidebar() {
         onSaved={(character) => {
           if (characterEditor?.mode === 'create') selectCharacter(character)
         }}
+      />
+      <CharacterSecurityDialog
+        open={Boolean(securityDialog)}
+        scan={securityDialog?.scan || null}
+        busy={securityBusy}
+        existingCharacter={securityDialog?.kind === 'existing'}
+        onCancel={() => { if (!securityBusy) setSecurityDialog(null) }}
+        onSafeCopy={() => {
+          if (securityDialog?.kind === 'existing') void createExistingSafeCopy()
+          else void importScannedCharacter('safe_copy')
+        }}
+        onQuarantine={securityDialog?.kind === 'import' ? () => void importScannedCharacter('quarantine') : undefined}
+        onOriginal={securityDialog?.kind === 'import' ? () => void importScannedCharacter('original') : undefined}
       />
       <ConfirmDialog
         open={Boolean(pendingDeleteCharacter)}

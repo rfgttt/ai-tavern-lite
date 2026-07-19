@@ -3,6 +3,7 @@ import type {
   AppSettings,
   Character,
   CharacterDraft,
+  CharacterSecurityImportMode,
   ChatSession,
   LorebookTrigger,
   Message,
@@ -32,7 +33,7 @@ export interface CharacterSlice {
   selectCharacter: (character: Character | null) => void
   createCharacter: (data: CharacterDraft) => Promise<Character>
   updateCharacter: (id: string, data: CharacterDraft) => Promise<Character>
-  importCharacter: (file: File) => Promise<Character>
+  importCharacter: (file: File, securityMode?: CharacterSecurityImportMode) => Promise<Character>
   deleteCharacter: (id: string) => Promise<void>
 }
 

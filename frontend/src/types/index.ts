@@ -1,3 +1,39 @@
+export type CharacterSecuritySeverity = 'info' | 'warning' | 'high' | 'blocked'
+export type CharacterSecurityRiskLevel = 'safe' | 'notice' | 'high' | 'blocked'
+export type CharacterSecurityImportMode = 'safe_copy' | 'quarantine' | 'original'
+
+export interface CharacterSecurityFinding {
+  id: string
+  severity: CharacterSecuritySeverity
+  category: string
+  title: string
+  message: string
+  path: string
+  evidence: string
+}
+
+export interface CharacterSecurityReport {
+  format_version: number
+  card_sha256: string
+  risk_level: CharacterSecurityRiskLevel
+  summary: string
+  counts: Record<string, number>
+  findings: CharacterSecurityFinding[]
+  external_hosts: string[]
+  has_active_content: boolean
+  prompt_injection_detected: boolean
+  can_import_original: boolean
+  can_import_safe: boolean
+  recommended_action: 'original' | 'safe_copy'
+  scanner_guarantees: string[]
+}
+
+export interface CharacterCardSecurityScan {
+  filename: string
+  card_name: string
+  report: CharacterSecurityReport
+}
+
 export interface Character {
   id: string
   name: string
