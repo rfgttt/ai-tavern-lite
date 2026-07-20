@@ -122,4 +122,11 @@ describe('SettingsPage backup and restore', () => {
     expect(fetchSettings).toHaveBeenCalledOnce()
   })
 
+  it('shows automatic card-state recovery as enabled', async () => {
+    renderWithRouter(<SettingsPage />, ['/settings'])
+
+    const checkbox = await screen.findByLabelText('自动补全角色状态更新')
+    expect(checkbox).toBeChecked()
+  })
+
 })

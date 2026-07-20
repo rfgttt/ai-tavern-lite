@@ -31,7 +31,7 @@ def complex_card():
 def test_report_distinguishes_detected_protocol_from_runtime_usability():
     report = build_compatibility_report(complex_card())
 
-    assert report['version'] == 3
+    assert report['version'] == 4
     assert report['runtime_checks']['initial_variables']['status'] == 'supported'
     assert report['runtime_checks']['initial_variables']['source'] == 'worldbook:[initvar]'
     assert report['runtime_checks']['patch_paths']['status'] == 'supported'
@@ -58,5 +58,5 @@ def test_mvu_without_initial_variables_is_only_partial():
 
 def test_runtime_profile_version_advances_for_existing_cards():
     profile = analyze_card(complex_card())
-    assert profile['version'] == 3
-    assert profile['compatibility_core'] == 'tavern-safe-v2'
+    assert profile['version'] == 8
+    assert profile['compatibility_core'] == 'tavern-safe-v6'

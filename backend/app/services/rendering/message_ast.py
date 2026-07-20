@@ -4,6 +4,8 @@ import hashlib
 import re
 from typing import Any
 
+from .status_protocol import extract_status_panels, status_marker_index
+
 STATUS_PLACEHOLDER_RE = re.compile(r"<\s*statusplaceholderimpl\s*/?\s*>", re.IGNORECASE)
 
 DIALOGUE_RE = re.compile(
@@ -32,11 +34,16 @@ def parse_message_ast(text: str) -> dict[str, Any]:
     segments: list[dict[str, Any]] = []
     speakers: dict[str, dict[str, str]] = {}
     marker = "__AI_TAVERN_CARD_STATE_PLACEHOLDER__"
-    normalized_text = STATUS_PLACEHOLDER_RE.sub(f"\n\n{marker}\n\n", text or "")
+    status_text, artifacts = extract_status_panels(text or "")
+    normalized_text = STATUS_PLACEHOLDER_RE.sub(f"\n\n{marker}\n\n", status_text)
 
     for paragraph in _paragraphs(normalized_text):
         if paragraph == marker:
             segments.append({"type": "card-state-placeholder"})
+            continue
+        status_index = status_marker_index(paragraph)
+        if status_index is not None and status_index < len(artifacts):
+            segments.append({"type": "status-panel-placeholder", "artifact_index": status_index})
             continue
         match = DIALOGUE_RE.match(paragraph)
         if match:
@@ -63,9 +70,12 @@ def parse_message_ast(text: str) -> dict[str, Any]:
 
         segments.append({"type": "markdown", "text": paragraph})
 
+    visible_content = re.sub(r"\n?__AI_TAVERN_TEXT_STATUS_\d+__\n?", "\n", status_text)
+    visible_content = re.sub(r"\n{3,}", "\n\n", visible_content).strip()
     return {
         "version": 2,
+        "content": visible_content,
         "segments": segments,
         "speaker_metadata": speakers,
-        "artifacts": [],
+        "artifacts": artifacts,
     }

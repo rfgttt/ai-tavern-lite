@@ -34,10 +34,46 @@ class Character(Base):
         values = normalized.get("alternate_greetings", []) if isinstance(normalized, dict) else []
         if not isinstance(values, list):
             return []
-        return [item for item in values if isinstance(item, str)]
+
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in values:
+            if not isinstance(item, str):
+                continue
+            text = item.strip()
+            if not text or text in seen:
+                continue
+            # CharacterResponse limits a greeting to 200,000 chars and the
+            # list to 50 items. Normalize imported cards defensively so one
+            # malformed optional greeting cannot break the whole list API.
+            text = text[:200_000]
+            cleaned.append(text)
+            seen.add(text)
+            if len(cleaned) >= 50:
+                break
+        return cleaned
 
     sessions = relationship("ChatSession", back_populates="character", cascade="all, delete-orphan")
     memories = relationship("Memory", back_populates="character", cascade="all, delete-orphan")
+    state_aliases = relationship("CharacterStateAlias", back_populates="character", cascade="all, delete-orphan")
+
+
+class CharacterStateAlias(Base):
+    __tablename__ = "character_state_aliases"
+    __table_args__ = (UniqueConstraint("character_id", "alias_key", name="uq_character_state_alias"),)
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    character_id = Column(String, ForeignKey("characters.id", ondelete="CASCADE"), nullable=False, index=True)
+    alias = Column(String, nullable=False)
+    alias_key = Column(String, nullable=False)
+    semantic = Column(String, nullable=False)
+    canonical_path = Column(String, nullable=False)
+    source = Column(String, default="user_confirmed")
+    confidence = Column(Float, default=1.0)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    character = relationship("Character", back_populates="state_aliases")
 
 
 class ChatSession(Base):
@@ -117,6 +153,7 @@ class TurnSnapshot(Base):
     triggered_lorebook_json = Column(Text, default="[]")
     rejected_patch_json = Column(Text, default="[]")
     parser_errors_json = Column(Text, default="[]")
+    decision_trace_json = Column(Text, default="[]")
     created_at = Column(DateTime, server_default=func.now())
 
     session = relationship("ChatSession", back_populates="turn_snapshots")

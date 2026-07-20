@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import re
 from dataclasses import dataclass, field
@@ -41,6 +42,176 @@ _JSON_PATCH_PATTERN = re.compile(r"<jsonpatch\b[^>]*>(.*?)</jsonpatch>", re.IGNO
 _DICE_PATTERN = re.compile(r"<dice\b[^>]*>(.*?)</dice>", re.IGNORECASE | re.DOTALL)
 _BATTLE_CHECK_PATTERN = re.compile(r"<battlecheck\b[^>]*>(.*?)</battlecheck>", re.IGNORECASE | re.DOTALL)
 _BATTLE_PATTERN = re.compile(r"<battle\b[^>]*>(.*?)</battle>", re.IGNORECASE | re.DOTALL)
+
+
+def _split_mvu_args(text: str) -> list[str]:
+    parts: list[str] = []
+    start = 0
+    quote: str | None = None
+    escaped = False
+    depth = 0
+    for index, char in enumerate(text):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            continue
+        if char in "[{(":
+            depth += 1
+            continue
+        if char in "]})":
+            depth = max(0, depth - 1)
+            continue
+        if char == "," and depth == 0:
+            parts.append(text[start:index].strip())
+            start = index + 1
+    tail = text[start:].strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _parse_mvu_literal(text: str) -> Any:
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    lowered = value.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    if lowered in {"null", "undefined"}:
+        return None
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    try:
+        return ast.literal_eval(value)
+    except (ValueError, SyntaxError):
+        if re.fullmatch(r"[-+]?\d+", value):
+            return int(value)
+        if re.fullmatch(r"[-+]?(?:\d+\.\d*|\d*\.\d+)", value):
+            return float(value)
+        raise ValueError("MVU 参数必须是字符串、数字、布尔值、数组或对象字面量")
+
+
+def _mvu_path_to_pointer(raw_path: Any) -> str:
+    text = str(raw_path or "").strip().strip(".")
+    if not text:
+        raise ValueError("MVU 路径不能为空")
+    tokens: list[str] = []
+    for match in re.finditer(r"([^\.\[\]]+)|\[(\d+)\]", text):
+        token = match.group(1) if match.group(1) is not None else match.group(2)
+        if token is not None and token != "":
+            tokens.append(_pointer_part(token))
+    if not tokens:
+        raise ValueError("MVU 路径无效")
+    return _convert_legacy_path("/" + "/".join(tokens))
+
+
+def _iter_mvu_commands(content: str):
+    text = str(content or "")
+    index = 0
+    marker = re.compile(r"_\.(set|add|insert|remove)\s*\(", re.IGNORECASE)
+    while True:
+        match = marker.search(text, index)
+        if not match:
+            break
+        command = match.group(1).lower()
+        cursor = match.end()
+        start = cursor
+        quote: str | None = None
+        escaped = False
+        depth = 1
+        while cursor < len(text) and depth:
+            char = text[cursor]
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif quote:
+                if char == quote:
+                    quote = None
+            elif char in {'"', "'"}:
+                quote = char
+            elif char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+            cursor += 1
+        if depth:
+            yield command, text[start:], "", "命令缺少右括号"
+            break
+        args = text[start:cursor - 1]
+        line_end = text.find("\n", cursor)
+        line_end = len(text) if line_end < 0 else line_end
+        suffix = text[cursor:line_end]
+        reason_match = re.search(r"//\s*(.*?)\s*$", suffix)
+        reason = reason_match.group(1).strip() if reason_match else ""
+        yield command, args, reason, ""
+        index = cursor
+
+
+def _parse_mvu_commands(content: str) -> tuple[list[dict], list[str], list[str]]:
+    operations: list[dict] = []
+    events: list[str] = []
+    errors: list[str] = []
+    # Analysis is explanatory model text, never an executable command source.
+    command_text = re.sub(r"<analysis\b[^>]*>.*?</analysis>", "", str(content or ""), flags=re.IGNORECASE | re.DOTALL)
+    for command, raw_args, reason, command_error in _iter_mvu_commands(command_text):
+        if command_error:
+            errors.append(f"MVU 变量命令解析失败: {command_error}")
+            continue
+        try:
+            args = _split_mvu_args(raw_args)
+            if not args:
+                raise ValueError("命令缺少参数")
+            path = _mvu_path_to_pointer(_parse_mvu_literal(args[0]))
+            if command == "add":
+                if len(args) != 2:
+                    raise ValueError("_.add 需要路径和增量值")
+                operations.append({"op": "increment", "path": path, "value": _parse_mvu_literal(args[1])})
+            elif command == "set":
+                if len(args) not in {2, 3}:
+                    raise ValueError("_.set 需要 2 或 3 个参数")
+                operations.append({"op": "replace", "path": path, "value": _parse_mvu_literal(args[-1])})
+            elif command == "insert":
+                if len(args) == 2:
+                    operations.append({"op": "append", "path": path, "value": _parse_mvu_literal(args[1])})
+                elif len(args) == 3:
+                    selector = _parse_mvu_literal(args[1])
+                    value = _parse_mvu_literal(args[2])
+                    if isinstance(selector, int) and not isinstance(selector, bool):
+                        operations.append({"op": "insert_at", "path": path, "index": selector, "value": value})
+                    else:
+                        operations.append({"op": "add", "path": f"{path}/{_pointer_part(selector)}", "value": value})
+                else:
+                    raise ValueError("_.insert 需要 2 或 3 个参数")
+            elif command == "remove":
+                if len(args) == 1:
+                    operations.append({"op": "remove", "path": path})
+                elif len(args) == 2:
+                    selector = _parse_mvu_literal(args[1])
+                    if isinstance(selector, int) and not isinstance(selector, bool):
+                        operations.append({"op": "remove_at", "path": path, "index": selector})
+                    else:
+                        operations.append({"op": "remove_value", "path": path, "value": selector})
+                else:
+                    raise ValueError("_.remove 需要 1 或 2 个参数")
+            if reason and reason not in events:
+                events.append(reason[:300])
+        except (ValueError, TypeError) as error:
+            errors.append(f"MVU 变量命令解析失败: {error}")
+    return operations, events, errors
 
 
 
@@ -268,15 +439,20 @@ def parse_runtime_output(text: str) -> ParsedRuntimeOutput:
 
     for match in list(_UPDATE_PATTERN.finditer(visible)):
         patch_match = _JSON_PATCH_PATTERN.search(match.group(1))
-        if not patch_match:
-            parsed.errors.append("变量更新缺少 JSONPatch")
-            continue
-        try:
-            operations = json.loads(patch_match.group(1).strip())
-            for operation in _patches(operations):
-                parsed.patch.append(_normalize_operation(operation))
-        except (json.JSONDecodeError, TypeError) as error:
-            parsed.errors.append(f"变量更新解析失败: {error}")
+        if patch_match:
+            try:
+                operations = json.loads(patch_match.group(1).strip())
+                for operation in _patches(operations):
+                    parsed.patch.append(_normalize_operation(operation))
+            except (json.JSONDecodeError, TypeError) as error:
+                parsed.errors.append(f"变量更新解析失败: {error}")
+        else:
+            operations, events, errors = _parse_mvu_commands(match.group(1))
+            parsed.patch.extend(operations)
+            parsed.events.extend(events)
+            parsed.errors.extend(errors)
+            if not operations and not errors:
+                parsed.errors.append("变量更新未包含可识别的 JSONPatch 或 MVU 命令")
     visible = _UPDATE_PATTERN.sub("", visible)
 
     for match in list(_DICE_PATTERN.finditer(visible)):
@@ -311,4 +487,13 @@ def parse_runtime_output(text: str) -> ParsedRuntimeOutput:
     parsed.narrative = visible
     parsed.events = _strings(parsed.events, limit=20)
     parsed.choices = _strings(parsed.choices, limit=8)
+    unique_patch: list[dict] = []
+    seen_patch: set[str] = set()
+    for operation in parsed.patch:
+        marker = json.dumps(operation, ensure_ascii=False, sort_keys=True, default=str)
+        if marker in seen_patch:
+            continue
+        seen_patch.add(marker)
+        unique_patch.append(operation)
+    parsed.patch = unique_patch[:64]
     return parsed

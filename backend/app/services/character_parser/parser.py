@@ -59,6 +59,26 @@ class CharacterCardNormalized:
         }
 
 
+def _normalize_imported_greetings(value):
+    """Normalize permissive external-card greetings to API-safe values."""
+    if not isinstance(value, list):
+        return []
+    cleaned = []
+    seen = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if not text or text in seen:
+            continue
+        text = text[:200_000]
+        cleaned.append(text)
+        seen.add(text)
+        if len(cleaned) >= 50:
+            break
+    return cleaned
+
+
 def _safe_get(data: dict, *keys, default=""):
     """Safely get nested value from dict."""
     current = data
@@ -103,7 +123,7 @@ def parse_json_character(json_data: Dict[str, Any]) -> Tuple[CharacterCardNormal
 
     # Alternate greetings
     alt = _safe_get(source, "alternate_greetings", default=_safe_get(json_data, "alternate_greetings", default=[]))
-    normalized.alternate_greetings = alt if isinstance(alt, list) else []
+    normalized.alternate_greetings = _normalize_imported_greetings(alt)
 
     # Tags
     tags = _safe_get(source, "tags", default=_safe_get(json_data, "tags", default=[]))

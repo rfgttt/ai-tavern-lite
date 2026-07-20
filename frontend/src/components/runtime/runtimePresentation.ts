@@ -81,13 +81,34 @@ export const activityLabel = (activity: RuntimeActivity): string => {
 export const changedFromInitial = (current: unknown, initial: unknown): boolean =>
   hasContent(current) && !sameValue(current, initial)
 
+const MVU_DESCRIPTION_HINT = /当前|说明|描述|格式|程度|列表|记录|范围|状态|变量|用于|发生|\[0-100\]/i
+
+export const presentCardValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    const cleaned = value.filter((item) => item !== '$__META_EXTENSIBLE__$')
+    if (cleaned.length === 2 && typeof cleaned[1] === 'string' && MVU_DESCRIPTION_HINT.test(cleaned[1])) {
+      return presentCardValue(cleaned[0])
+    }
+    return cleaned.map(presentCardValue).filter(hasContent)
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !key.startsWith('$'))
+        .map(([key, item]) => [key, presentCardValue(item)])
+        .filter(([, item]) => hasContent(item)),
+    )
+  }
+  return value
+}
+
 export const sanitizedCustom = (custom: unknown): Record<string, unknown> => {
   if (!isRecord(custom)) return {}
-  return Object.fromEntries(
+  return presentCardValue(Object.fromEntries(
     Object.entries(custom).filter(([key, value]) =>
       !TECHNICAL_KEYS.has(key.toLowerCase()) && hasContent(value)
     )
-  )
+  )) as Record<string, unknown>
 }
 
 export const humanPath = (path: unknown): string => {

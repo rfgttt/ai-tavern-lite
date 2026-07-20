@@ -38,6 +38,51 @@ def test_mvu_update_variable_json_patch_is_converted():
     ]
 
 
+def test_mvu_command_protocol_is_converted_without_executing_code():
+    from app.services.runtime.output_parser import parse_runtime_output
+
+    text = '''她试探着抬起头。
+<UpdateVariable>
+<Analysis>逐项分析，但不显示给用户。</Analysis>
+_.set('世界信息.时间[0]', '15:30', '16:00');//时间推进
+_.add('穗秋生.好感度[0]', 2);//温柔对待
+_.add('穗秋生.害怕值[0]', -2);//恐惧缓解
+_.insert('穗秋生.重要记忆[0]', '<user>第一次温柔安慰我');//记录重要事件
+_.remove('穗秋生.身上的伤[0]', '头皮裂伤');//伤口已经处理
+_.remove('穗秋生.重要记忆[0]', 0);//删除第一条记忆
+</UpdateVariable>'''
+
+    parsed = parse_runtime_output(text)
+
+    assert parsed.narrative == '她试探着抬起头。'
+    assert parsed.errors == []
+    assert parsed.patch == [
+        {'op': 'replace', 'path': '/custom/世界信息/时间/0', 'value': '16:00'},
+        {'op': 'increment', 'path': '/custom/穗秋生/好感度/0', 'value': 2},
+        {'op': 'increment', 'path': '/custom/穗秋生/害怕值/0', 'value': -2},
+        {'op': 'append', 'path': '/custom/穗秋生/重要记忆/0', 'value': '<user>第一次温柔安慰我'},
+        {'op': 'remove_value', 'path': '/custom/穗秋生/身上的伤/0', 'value': '头皮裂伤'},
+        {'op': 'remove_at', 'path': '/custom/穗秋生/重要记忆/0', 'index': 0},
+    ]
+    assert '时间推进' in parsed.events
+    assert '温柔对待' in parsed.events
+
+
+def test_mvu_analysis_text_cannot_create_state_commands():
+    from app.services.runtime.output_parser import parse_runtime_output
+
+    parsed = parse_runtime_output(
+        "正文<UpdateVariable><Analysis>不要执行 _.add('角色.好感度', 99)</Analysis>"
+        "_.add('角色.好感度', 1);//真实更新</UpdateVariable>"
+    )
+
+    assert parsed.narrative == '正文'
+    assert parsed.patch == [
+        {'op': 'increment', 'path': '/character/好感度', 'value': 1},
+    ]
+    assert parsed.events == ['真实更新']
+
+
 def test_dice_and_battlecheck_blocks_become_native_metadata():
     from app.services.runtime.output_parser import parse_runtime_output
 
@@ -169,6 +214,20 @@ def test_native_patch_normalizes_custom_relationship_alias():
 
     assert parsed.patch[0]["path"] == "/relationship/信任"
     assert parsed.patch[1]["path"] == "/scene/地点"
+
+
+def test_runtime_prompt_prefers_declared_mvu_command_protocol_without_native_block():
+    from app.services.runtime.prompt import build_runtime_prompt
+
+    text = build_runtime_prompt(
+        {'mode': 'relationship', 'capabilities': {'mvu_state': True, 'mvu_command_protocol': True}},
+        {'custom': {'角色': {'好感度': [5, '说明']}}},
+    )
+
+    assert 'Tavern MVU 命令协议' in text
+    assert '_.set、_.add、_.insert、_.remove' in text
+    assert '<tavern_state>' not in text
+    assert 'events 写' not in text
 
 
 def test_runtime_prompt_does_not_require_invented_relationship_scores():

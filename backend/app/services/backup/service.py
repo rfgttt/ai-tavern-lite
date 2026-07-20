@@ -44,6 +44,7 @@ COUNT_TABLES = {
     "groups": "character_groups",
     "group_members": "group_members",
     "branches": "session_branches",
+    "state_aliases": "character_state_aliases",
 }
 REQUIRED_SCHEMA = {
     "characters": {"id", "name", "normalized_json", "raw_json", "avatar_path"},
@@ -57,6 +58,10 @@ REQUIRED_SCHEMA = {
     "character_groups": {"id", "name"},
     "group_members": {"id", "group_id", "character_id"},
     "session_branches": {"id", "session_id", "messages_json", "runtime_state_json"},
+    "character_state_aliases": {
+        "id", "character_id", "alias", "alias_key", "semantic",
+        "canonical_path", "source", "confidence",
+    },
     "alembic_version": {"version_num"},
 }
 EXACT_SENSITIVE_SETTING_KEYS = {

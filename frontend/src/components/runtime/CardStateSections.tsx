@@ -42,6 +42,9 @@ export default function CardStateSections({
   const clues = pickAlias(custom, ['线索', 'clues', 'clue', '调查记录', '案件线索', '谜题'])
   const inventory = sectionValue(state, 'inventory', ['items', 'item', '背包', '物品', '道具'])
   const character = sectionValue(state, 'character', ['角色', '角色状态'])
+  const meaningfulCharacter = isRecord(character)
+    ? Object.fromEntries(Object.entries(character).filter(([key, value]) => key !== 'name' && hasContent(value)))
+    : character
 
   const questActivity = activityForRoots(timeline, ['quests', 'quest', 'tasks', 'task', '任务', '目标', '线索', 'clues'])
   const inventoryActivity = activityForRoots(timeline, ['inventory', 'items', '背包', '物品', '道具'])
@@ -51,11 +54,12 @@ export default function CardStateSections({
   const clueItems = Array.isArray(clues) ? clues : isRecord(clues) ? Object.values(clues) : hasContent(clues) ? [clues] : []
   const showQuests = questItems.some(hasContent) || clueItems.some(hasContent)
   const showInventory = hasContent(inventory) && changedFromInitial(inventory, initialState.inventory)
-  const showCharacter = hasContent(character) && changedFromInitial(character, initialState.character)
+  const showCharacter = hasContent(meaningfulCharacter)
 
   const meaningfulCustom = sanitizedCustom(custom)
   const initialMeaningfulCustom = sanitizedCustom(initialCustom)
-  const showCustom = hasContent(meaningfulCustom) && changedFromInitial(meaningfulCustom, initialMeaningfulCustom)
+  const customChanged = changedFromInitial(meaningfulCustom, initialMeaningfulCustom)
+  const showCustom = hasContent(meaningfulCustom)
 
   return (
     <>
@@ -70,8 +74,8 @@ export default function CardStateSections({
       ) : null}
 
       {showInventory ? <GenericDataPanel icon={<Backpack size={15}/>} title="物品与资源" subtitle={activityLabel(inventoryActivity)} value={inventory}/> : null}
-      {showCharacter ? <GenericDataPanel icon={<UserRound size={15}/>} title="角色状态" subtitle={activityLabel(characterActivity)} value={character}/> : null}
-      {showCustom ? <GenericDataPanel icon={<Sparkles size={15}/>} title="卡片状态" subtitle="角色卡自定义变量" value={meaningfulCustom}/> : null}
+      {showCharacter ? <GenericDataPanel icon={<UserRound size={15}/>} title="角色状态" subtitle={characterActivity.changed ? activityLabel(characterActivity) : '角色卡初始状态'} value={meaningfulCharacter}/> : null}
+      {showCustom ? <GenericDataPanel icon={<Sparkles size={15}/>} title="角色卡变量" subtitle={customChanged ? '本轮或历史已更新' : '角色卡初始状态'} value={meaningfulCustom}/> : null}
     </>
   )
 }

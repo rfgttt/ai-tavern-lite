@@ -28,6 +28,7 @@ import type {
   BackupRestoreResult,
   CharacterCardSecurityScan,
   CharacterSecurityImportMode,
+  CharacterStateAliasRegistry,
 } from '@/types'
 
 const api = axios.create({
@@ -72,6 +73,12 @@ export const exportCharacter = (id: string) => api.get(`/characters/${id}/export
 export const getLorebook = (id: string) => api.get<Lorebook>(`/characters/${id}/lorebook`)
 export const updateLorebook = (id: string, data: Lorebook) =>
   api.put<Lorebook>(`/characters/${id}/lorebook`, data)
+export const getCharacterStateAliases = (id: string) =>
+  api.get<CharacterStateAliasRegistry>(`/characters/${id}/state-aliases`)
+export const confirmCharacterStateAlias = (id: string, data: { alias: string; semantic: string }) =>
+  api.post<CharacterStateAliasRegistry>(`/characters/${id}/state-aliases`, data)
+export const deleteCharacterStateAlias = (characterId: string, aliasId: string) =>
+  api.delete<CharacterStateAliasRegistry>(`/characters/${characterId}/state-aliases/${aliasId}`)
 
 // Sessions
 export const getSessions = (characterId?: string) =>

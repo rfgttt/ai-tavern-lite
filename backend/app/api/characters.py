@@ -361,7 +361,7 @@ def get_character_session_options(character_id: str, db: Session = Depends(get_d
             seen.add(rendered)
 
     greetings = [option["content"] for option in greeting_options]
-    profile = character_profile(character)
+    profile = character_profile(character, db)
     initial_state = build_initial_state(profile, normalized, username=username)
     return {
         "character_id": character.id,

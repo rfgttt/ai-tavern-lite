@@ -11,6 +11,7 @@ from ..diagnostics.service import diagnostic_service
 from ..memory.service import MemoryService
 from ..runtime.output_parser import parse_runtime_output
 from ..runtime.stream_filter import RuntimeStreamFilter
+from ..runtime.state_recovery import recover_missing_state_update, should_attempt_recovery
 from ..runtime.turn_finalizer import finalize_stream_turn
 from .context import ChatStreamContext
 from .helpers import sanitize_error, sse
@@ -131,7 +132,75 @@ class ChatStreamRunner:
                     final_status = "stopped"
 
                 parsed = parse_runtime_output(raw_content)
+                primary_patch_operations = list(parsed.patch)
                 operations = self._runtime_operations(parsed, final_status)
+                state_update_source = (
+                    "primary_response"
+                    if primary_patch_operations
+                    else ("primary_metadata" if operations else "none")
+                )
+                fallback_attempted = False
+                fallback_reason = ""
+                fallback_response_characters = 0
+                fallback_http_completed = False
+                fallback_finish_reason = ""
+                fallback_response_type = ""
+                fallback_error_type = ""
+                fallback_reasoning_characters = 0
+                fallback_reasoning_tokens = 0
+                fallback_completion_tokens = 0
+                fallback_requested_max_tokens = 0
+                fallback_request_profile = ""
+                should_recover, fallback_reason = should_attempt_recovery(
+                    profile=context.runtime_profile,
+                    enabled=bool(context.app_settings.get("auto_state_update_recovery", True)),
+                    final_status=final_status,
+                    primary_operations=primary_patch_operations,
+                    provider_cancelled=bool(getattr(context.provider, "cancelled", False)),
+                )
+                if should_recover:
+                    fallback_attempted = True
+                    try:
+                        recovery_provider = context.provider_factory(
+                            mock_mode=context.app_settings.get("mock_llm", True),
+                            base_url=context.app_settings.get("base_url", ""),
+                            api_key=context.app_settings.get("api_key", ""),
+                            model=context.app_settings.get("model", ""),
+                            character_name=context.character_name,
+                        )
+                        self.active_streams[context.assistant_message_id] = recovery_provider
+                        recovery = await recover_missing_state_update(
+                            provider=recovery_provider,
+                            state_before=context.state_before,
+                            user_message=context.query_text,
+                            assistant_narrative=parsed.narrative,
+                            card_rules=context.state_update_rules,
+                            custom_headers=context.app_settings.get("custom_headers"),
+                        )
+                        fallback_attempted = recovery.attempted
+                        fallback_reason = recovery.reason
+                        fallback_response_characters = recovery.response_characters
+                        fallback_http_completed = recovery.http_completed
+                        fallback_finish_reason = recovery.finish_reason
+                        fallback_response_type = recovery.response_type
+                        fallback_error_type = recovery.error_type
+                        fallback_reasoning_characters = recovery.reasoning_characters
+                        fallback_reasoning_tokens = recovery.reasoning_tokens
+                        fallback_completion_tokens = recovery.completion_tokens
+                        fallback_requested_max_tokens = recovery.requested_max_tokens
+                        fallback_request_profile = recovery.request_profile
+                        parsed.errors.extend(recovery.errors)
+                        for event in recovery.events:
+                            if event not in parsed.events:
+                                parsed.events.append(event)
+                        if recovery.operations:
+                            operations.extend(recovery.operations)
+                            state_update_source = "fallback_extractor"
+                    except Exception as error:
+                        fallback_reason = "fallback_provider_init_error"
+                        fallback_error_type = error.__class__.__name__
+                        parsed.errors.append(f"状态提取提供商初始化失败: {error.__class__.__name__}")
+
                 final_result = finalize_stream_turn(
                     context.session_factory,
                     session_id=context.session_id,
@@ -148,6 +217,19 @@ class ChatStreamRunner:
                     expression=parsed.expression,
                     triggered_lorebook=context.lorebook_meta,
                     parser_errors=parsed.errors,
+                    state_update_source=state_update_source,
+                    fallback_attempted=fallback_attempted,
+                    fallback_reason=fallback_reason,
+                    fallback_response_characters=fallback_response_characters,
+                    fallback_http_completed=fallback_http_completed,
+                    fallback_finish_reason=fallback_finish_reason,
+                    fallback_response_type=fallback_response_type,
+                    fallback_error_type=fallback_error_type,
+                    fallback_reasoning_characters=fallback_reasoning_characters,
+                    fallback_reasoning_tokens=fallback_reasoning_tokens,
+                    fallback_completion_tokens=fallback_completion_tokens,
+                    fallback_requested_max_tokens=fallback_requested_max_tokens,
+                    fallback_request_profile=fallback_request_profile,
                 )
                 self._finalize_replacement(context, final_status)
                 self._record_diagnostics(
@@ -319,6 +401,20 @@ class ChatStreamRunner:
                     "version_before": context.runtime_revision_before,
                     "version_after": final_result["revision"],
                     "patch_applied": final_result["patch_applied"],
+                    "state_changed": final_result["state_changed"],
+                    "state_update_source": final_result["state_update_source"],
+                    "fallback_attempted": final_result["fallback_attempted"],
+                    "fallback_reason": final_result["fallback_reason"],
+                    "fallback_response_characters": final_result["fallback_response_characters"],
+                    "fallback_http_completed": final_result["fallback_http_completed"],
+                    "fallback_finish_reason": final_result["fallback_finish_reason"],
+                    "fallback_response_type": final_result["fallback_response_type"],
+                    "fallback_error_type": final_result["fallback_error_type"],
+                    "fallback_reasoning_characters": final_result["fallback_reasoning_characters"],
+                    "fallback_reasoning_tokens": final_result["fallback_reasoning_tokens"],
+                    "fallback_completion_tokens": final_result["fallback_completion_tokens"],
+                    "fallback_requested_max_tokens": final_result["fallback_requested_max_tokens"],
+                    "fallback_request_profile": final_result["fallback_request_profile"],
                     "applied_operations": final_result["applied_patch_count"],
                     "rejected_operations": final_result[
                         "rejected_patch_count"

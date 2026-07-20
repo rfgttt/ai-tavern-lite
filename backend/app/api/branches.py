@@ -63,6 +63,7 @@ def _restore_snapshot(db: Session, session_id: str, message_id: str, payload: di
         triggered_lorebook_json=json.dumps(payload.get("triggered_lorebook", []), ensure_ascii=False),
         rejected_patch_json=json.dumps(payload.get("rejected_patch", []), ensure_ascii=False),
         parser_errors_json=json.dumps(payload.get("parser_errors", []), ensure_ascii=False),
+        decision_trace_json=json.dumps(payload.get("decision_trace", []), ensure_ascii=False),
     ))
 
 

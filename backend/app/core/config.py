@@ -80,6 +80,7 @@ class Settings(BaseSettings):
 
     max_memory_entries: int = 12
     auto_memory_extraction: bool = False
+    auto_state_update_recovery: bool = True
 
     default_username: str = "用户"
 

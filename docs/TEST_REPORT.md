@@ -7,15 +7,15 @@
 ## 2. 自动验证摘要
 
 ```text
-后端：161 passed
-前端 UI/API/lib：23 passed
-前端 Store：13 passed
-前端合计：36 passed
+后端：312 collected（Windows 预计 312 passed；非 Windows 预计 311 passed、1 skipped）
+前端 UI/API/lib：57 passed
+前端 Store：22 passed
+前端合计：79 passed
 TypeScript：passed
 Vite production build：passed
 Alembic migration graph：1 head
-Alembic head：20260717_0001
-数据库结构：11 张业务表
+Alembic head：20260720_0003
+数据库结构：12 张业务表
 长会话：1002 条消息完整、有序返回
 ```
 
@@ -80,7 +80,7 @@ Alembic head：20260717_0001
 
 ## 4. 前端测试范围
 
-### UI、API 与工具：23 项
+### UI、API 与工具：57 项
 
 - 模型配置完整性判断；
 - SSE 正常完成和异常断开；
@@ -89,7 +89,7 @@ Alembic head：20260717_0001
 - 新会话向导的 Persona、编组、开场白和初始状态；
 - 角色创建、世界书保存、备用开场白去重与预览。
 
-### Store：13 项
+### Store：22 项
 
 - Slice 的基础状态和行为；
 - Store 重置与活动流中断；
@@ -102,7 +102,7 @@ Alembic head：20260717_0001
 
 ## 5. 数据迁移专项结果
 
-迁移版本：`20260717_0001`。
+迁移版本：`20260720_0003`。
 
 验证场景：
 
@@ -112,7 +112,7 @@ Alembic head：20260717_0001
 4. 重复序号重新编号并建立唯一索引；
 5. 重复执行升级保持幂等；
 6. 强制制造迁移失败并恢复备份；
-7. 代表性 11 表数据迁移前后逐表比较。
+7. 代表性 12 表数据迁移前后逐表比较。
 
 代表性数据接管前后，业务表行数和内容 SHA-256 一致，仅新增 Alembic 版本表。
 

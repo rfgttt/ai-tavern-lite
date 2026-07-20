@@ -71,6 +71,7 @@ export const appSettingsFixture: AppSettings = {
   username: '用户',
   mock_llm: true,
   auto_memory_extraction: false,
+  auto_state_update_recovery: true,
   api_key_configured: false,
   api_key_masked: '',
   api_key_storage: 'windows_dpapi',

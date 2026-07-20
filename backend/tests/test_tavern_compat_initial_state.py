@@ -67,6 +67,59 @@ def test_extracts_disabled_initvar_yaml_subset():
     assert result.warnings == []
 
 
+def test_extracts_disabled_initvar_json_and_projects_mvu_tuples():
+    from app.services.tavern_compat.initial_state import project_card_variables
+
+    normalized = {
+        "character_book": {
+            "entries": [
+                {
+                    "comment": "[InitVar]",
+                    "enabled": False,
+                    "content": '''{
+                      "$meta": {"strictSet": true},
+                      "世界信息": {
+                        "日期": ["2024年11月9日", "当前日期"],
+                        "时间": ["15:30", "当前时间，格式为 hh:mm"],
+                        "地点": ["老旧住宅区的家中", "当前场景地点"]
+                      },
+                      "穗秋生": {
+                        "好感度": [5, "[0-100]爱意程度"],
+                        "害怕值": [95, "[0-100]恐惧程度"],
+                        "依赖值": [100, "[0-100]依赖程度"],
+                        "身上的伤": [["$__META_EXTENSIBLE__$", "额头淤青"], "身体伤势列表"],
+                        "重要记忆": [["$__META_EXTENSIBLE__$"], "发生重要事件时记录"]
+                      }
+                    }''',
+                }
+            ]
+        }
+    }
+
+    result = extract_card_variables(normalized)
+    projected = project_card_variables({
+        "scene": {},
+        "relationship": {},
+        "character": {"name": "穗秋生"},
+        "custom": result.variables,
+    })
+
+    assert result.source == "worldbook:[initvar]"
+    assert result.warnings == []
+    assert result.variables["穗秋生"]["好感度"][0] == 5
+    assert projected["scene"] == {
+        "location": "老旧住宅区的家中",
+        "time": "15:30",
+        "date": "2024年11月9日",
+    }
+    assert projected["relationship"]["affection"] == 5
+    assert projected["relationship"]["fear"] == 95
+    assert projected["relationship"]["dependence"] == 100
+    assert result.variables["穗秋生"]["身上的伤"][0][0] == "$__META_EXTENSIBLE__$"
+    assert projected["character"]["injuries"] == ["额头淤青"]
+    assert projected["character"]["important_memories"] == []
+
+
 def test_merge_card_variables_keeps_platform_roots_and_uses_custom_namespace():
     base = {
         "scene": {},

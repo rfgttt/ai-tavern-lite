@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy.orm import sessionmaker
 
@@ -38,6 +38,8 @@ class ChatStreamContext:
     memories_count: int
     lorebook_meta: list[dict[str, Any]]
     runtime_profile: dict[str, Any]
+    state_update_rules: str
     state_before: dict[str, Any]
     runtime_revision_before: int
     provider: object
+    provider_factory: Callable[..., object]

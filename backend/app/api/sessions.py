@@ -13,8 +13,9 @@ from ..schemas import (
 from ..services.character_parser.parser import replace_template_vars
 from ..services.settings_service import SettingsService
 from ..core.logging import logger
-from ..services.runtime.session_service import ensure_session_state
+from ..services.runtime.session_service import ensure_session_state, json_load
 from ..services.runtime.state_engine import serialize_state_document
+from ..services.runtime.state_schema import reconcile_state_schema
 from ..services.rendering.message_ast import parse_message_ast
 from ..services.card_security import is_quarantined
 
@@ -86,8 +87,13 @@ def create_session(session_data: ChatSessionCreate, db: Session = Depends(get_db
     # immutable initial-state snapshot instead of falling back to the latest state.
     runtime = ensure_session_state(db, session, character)
     if session_data.initial_state is not None:
+        profile = json_load(runtime.profile_json, {})
+        schema = reconcile_state_schema(
+            profile.get("state_schema", {}) if isinstance(profile, dict) else {},
+            json_load(runtime.state_json, {}),
+        )
         try:
-            serialized_state = serialize_state_document(session_data.initial_state)
+            serialized_state = serialize_state_document(session_data.initial_state, schema=schema)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error))
         runtime.initial_state_json = serialized_state
@@ -107,12 +113,12 @@ def create_session(session_data: ChatSessionCreate, db: Session = Depends(get_db
         first_message = Message(
             session_id=session.id,
             role="assistant",
-            content=first_msg_content,
+            content=str(render_data.get("content", first_msg_content)),
             sequence=0,
             generation_status="complete",
             segments_json=json.dumps(render_data["segments"], ensure_ascii=False),
             speaker_metadata_json=json.dumps(render_data["speaker_metadata"], ensure_ascii=False),
-            artifacts_json="[]",
+            artifacts_json=json.dumps(render_data["artifacts"], ensure_ascii=False),
             render_version=2,
         )
         db.add(first_message)
@@ -287,9 +293,10 @@ def update_message(
 
     if "content" in update_data:
         render_data = parse_message_ast(message.content or "")
+        message.content = str(render_data.get("content", message.content or ""))
         message.segments_json = json.dumps(render_data["segments"], ensure_ascii=False)
         message.speaker_metadata_json = json.dumps(render_data["speaker_metadata"], ensure_ascii=False)
-        message.artifacts_json = "[]"
+        message.artifacts_json = json.dumps(render_data["artifacts"], ensure_ascii=False)
         message.render_version = 2
 
     _touch_session(message.session)

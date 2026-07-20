@@ -74,6 +74,58 @@ export interface CharacterGreetingOption {
   source_index?: number | null
 }
 
+
+export interface CharacterStateAliasEntry {
+  id: string
+  alias: string
+  alias_key: string
+  semantic: string
+  canonical_path: string
+  source?: string
+  confidence?: number
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface CharacterStateAliasSuggestion {
+  id: string
+  alias: string
+  alias_key: string
+  semantic: string
+  canonical_path: string
+  confidence: number
+  observed?: boolean
+  observed_paths?: string[]
+  status?: string
+}
+
+export interface CharacterStateAliasTarget {
+  semantic: string
+  canonical_path: string
+  type?: string
+  source?: string
+  minimum?: number | null
+  maximum?: number | null
+}
+
+export interface CharacterStateAliasRegistry {
+  schema: 'ai-tavern-card-aliases/1' | string
+  version: number
+  character_id: string
+  character_name: string
+  revision: string
+  confirmed: CharacterStateAliasEntry[]
+  suggestions: CharacterStateAliasSuggestion[]
+  targets: CharacterStateAliasTarget[]
+  summary: {
+    confirmed_count?: number
+    suggestion_count?: number
+    observed_suggestion_count?: number
+    semantic_target_count?: number
+    [key: string]: unknown
+  }
+}
+
 export interface CharacterSessionOptions {
   character_id: string
   character_name: string
@@ -93,14 +145,44 @@ export interface SessionCreateOptions {
   initial_state?: RuntimeState
 }
 
+export interface StatusPanelField {
+  label: string
+  value: string
+  icon?: string
+}
+
+export interface StatusPanelCharacter {
+  name: string
+  badge?: string
+  fields?: StatusPanelField[]
+}
+
+export interface StatusPanelSection {
+  kind: 'environment' | 'characters' | 'interaction' | 'atmosphere' | 'generic' | string
+  title: string
+  fields?: StatusPanelField[]
+  characters?: StatusPanelCharacter[]
+  text?: string
+}
+
+export interface StatusPanelArtifact {
+  schema: 'ai-tavern-status-panel/1' | string
+  protocol: 'text-end' | 'status-tag' | string
+  title?: string
+  sections: StatusPanelSection[]
+  warnings?: string[]
+  source_text?: string
+}
+
 export type MessageSegment =
   | { type: 'dialogue'; speaker: string; text: string; emotion?: string }
   | { type: 'narration' | 'thought' | 'markdown'; text: string }
   | { type: 'action'; speaker?: string; text: string }
   | { type: 'card-state-placeholder' }
+  | { type: 'status-panel-placeholder'; artifact_index: number }
 
 export interface MessageArtifact {
-  type: 'dice' | 'battle-check' | 'battle-map' | 'state-diff' | 'generic'
+  type: 'dice' | 'battle-check' | 'battle-map' | 'state-diff' | 'status-panel' | 'generic'
   data: unknown
 }
 
@@ -170,6 +252,7 @@ export interface AppSettings {
   username: string
   mock_llm: boolean
   auto_memory_extraction: boolean
+  auto_state_update_recovery: boolean
   api_key_configured: boolean
   api_key_masked: string
   api_key_storage: 'windows_dpapi' | 'environment' | 'database_legacy'
@@ -213,6 +296,52 @@ export interface BackupRestoreResult extends PendingRestoreStatus {
 
 export type RuntimeMode = 'relationship' | 'adventure' | 'general'
 
+
+export interface RuntimeStateSchemaField {
+  path: string
+  type: string
+  declared?: boolean
+  source?: string
+  mutable?: boolean
+  required?: boolean
+  description?: string
+  semantic?: string
+  canonical_path?: string
+  semantic_role?: 'source' | 'projection' | string
+  derived?: boolean
+  minimum?: number
+  maximum?: number
+  items_type?: string
+  update_modes?: string[]
+  [key: string]: unknown
+}
+
+export interface RuntimeStateSchema {
+  schema: 'ai-tavern-state-schema/1' | string
+  version: number
+  source?: string
+  fields: Record<string, RuntimeStateSchemaField>
+  containers: Record<string, Record<string, unknown>>
+  semantic_index?: Record<string, { canonical_path?: string; paths?: string[]; source?: string; [key: string]: unknown }>
+  summary: {
+    field_count?: number
+    declared_count?: number
+    numeric_count?: number
+    constrained_count?: number
+    semantic_count?: number
+    strict_container_count?: number
+    [key: string]: unknown
+  }
+}
+
+export interface RuntimeSchemaValidation {
+  valid: boolean
+  errors: Array<{ path?: string; code?: string; message?: string; [key: string]: unknown }>
+  warnings: Array<{ path?: string; code?: string; message?: string; [key: string]: unknown }>
+  error_count: number
+  warning_count: number
+}
+
 export interface RuntimeProfile {
   version: number
   mode: RuntimeMode
@@ -220,15 +349,29 @@ export interface RuntimeProfile {
   card_spec_version: string
   capabilities: Record<string, boolean>
   native_renderers: string[]
-  script_execution: 'disabled'
+  script_execution: 'disabled' | 'safe-native-emulation'
   regex_script_count: number
   lorebook_entry_count: number
   external_resource_count: number
+  recommended_context_window?: number
+  emulation?: {
+    version?: number
+    mode?: string
+    status_panel?: { enabled?: boolean; theme?: string; memory_page_size?: number; sections?: string[] }
+    prompt_filters?: Record<string, boolean>
+    native_actions?: Array<{ id: string; label: string; status: string }>
+  }
+  state_policy?: Record<string, unknown>
+  state_schema?: RuntimeStateSchema
+  state_schema_summary?: RuntimeStateSchema['summary']
+  state_aliases?: CharacterStateAliasRegistry
+  state_alias_summary?: CharacterStateAliasRegistry['summary']
   warnings: string[]
 }
 
 export interface SceneRuntimeState {
   location?: string
+  date?: string
   time?: string
   weather?: string
   atmosphere?: string
@@ -350,6 +493,51 @@ export interface BattleCheckResult {
   [key: string]: unknown
 }
 
+export interface RuntimeDecisionTraceField {
+  path?: string
+  namespace?: string
+  classification?: 'existing' | 'created' | 'unresolved' | string
+  existed_before?: boolean
+  exists_after?: boolean
+  declared?: boolean
+  schema_type?: string
+  semantic?: string
+  schema_source?: string
+  mutable?: boolean
+  minimum?: number
+  maximum?: number
+  update_modes?: string[]
+  [key: string]: unknown
+}
+
+export interface RuntimeDecisionStage {
+  decision?: string
+  reason_code?: string
+  reason?: string
+  before_exists?: boolean
+  before?: unknown
+  after_exists?: boolean
+  after?: unknown
+  changed?: boolean
+  input_operation?: Record<string, unknown>
+  output_operation?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+export interface RuntimeDecisionTrace {
+  operation_id?: string
+  source?: string
+  outcome?: string
+  raw_operation?: Record<string, unknown> | unknown
+  normalized_operation?: Record<string, unknown> | unknown
+  field?: RuntimeDecisionTraceField
+  alias?: RuntimeDecisionStage
+  policy?: RuntimeDecisionStage
+  schema?: RuntimeDecisionStage
+  apply?: RuntimeDecisionStage
+  [key: string]: unknown
+}
+
 export interface TurnRuntime {
   id: string
   message_id: string
@@ -365,6 +553,7 @@ export interface TurnRuntime {
   triggered_lorebook: LorebookTrigger[]
   rejected_patch: Array<Record<string, unknown>>
   parser_errors: string[]
+  decision_trace: RuntimeDecisionTrace[]
   created_at: string | null
 }
 
@@ -373,6 +562,7 @@ export interface RuntimeSession {
   profile: RuntimeProfile
   initial_state: RuntimeState
   state: RuntimeState
+  schema_validation?: RuntimeSchemaValidation
   revision: number
   last_turn: TurnRuntime | null
   updated_at: string | null

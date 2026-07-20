@@ -5,10 +5,12 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ...db.models import Character, ChatSession, Message, SessionState, TurnSnapshot
+from ...db.models import Character, CharacterStateAlias, ChatSession, Message, SessionState, TurnSnapshot
 from ..settings_service import SettingsService
 from .card_profile import analyze_card
 from .state_engine import build_initial_state
+from .state_schema import reconcile_state_schema, validate_state_against_schema
+from .state_aliases import build_alias_registry
 from ..tavern_compat.initial_state import backfill_card_variables, extract_card_variables
 
 
@@ -25,12 +27,30 @@ def character_normalized(character: Character) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def character_profile(character: Character) -> dict:
+def character_profile(character: Character, db: Session | None = None) -> dict:
     normalized = character_normalized(character)
     stored = normalized.get("ai_tavern_runtime")
-    if isinstance(stored, dict) and stored.get("version") == 3:
-        return stored
-    return analyze_card(normalized)
+    if isinstance(stored, dict) and stored.get("version") == 8:
+        base = dict(stored)
+    else:
+        base = analyze_card(normalized)
+    profile = dict(base)
+    state_schema = profile.get("state_schema", {}) if isinstance(profile, dict) else {}
+    rows = []
+    if db is not None:
+        rows = (
+            db.query(CharacterStateAlias)
+            .filter(CharacterStateAlias.character_id == character.id)
+            .order_by(CharacterStateAlias.semantic.asc(), CharacterStateAlias.alias_key.asc())
+            .all()
+        )
+    profile["state_aliases"] = build_alias_registry(
+        state_schema,
+        confirmed_rows=rows,
+        character_id=character.id,
+    )
+    profile["state_alias_summary"] = profile["state_aliases"].get("summary", {})
+    return profile
 
 
 def ensure_session_state(
@@ -43,11 +63,13 @@ def ensure_session_state(
     if runtime:
         if character is not None:
             normalized = character_normalized(character)
-            refreshed_profile = character_profile(character)
+            refreshed_profile = character_profile(character, db)
             stored_profile = json_load(runtime.profile_json, {})
             profile_changed = (
                 stored_profile.get("version") != refreshed_profile.get("version")
                 or stored_profile.get("compatibility_core") != refreshed_profile.get("compatibility_core")
+                or (stored_profile.get("state_aliases") or {}).get("revision")
+                != (refreshed_profile.get("state_aliases") or {}).get("revision")
             )
             if profile_changed:
                 variables = extract_card_variables(normalized).variables
@@ -66,7 +88,7 @@ def ensure_session_state(
     if character is None:
         raise ValueError("会话缺少角色")
     normalized = character_normalized(character)
-    profile = character_profile(character)
+    profile = character_profile(character, db)
     settings = SettingsService.get_all_settings(db)
     initial_state = build_initial_state(profile, normalized, username=settings.get("username", "用户"))
     runtime = SessionState(
@@ -99,6 +121,7 @@ def snapshot_payload(snapshot: TurnSnapshot | None) -> dict | None:
         "triggered_lorebook": json_load(snapshot.triggered_lorebook_json, []),
         "rejected_patch": json_load(snapshot.rejected_patch_json, []),
         "parser_errors": json_load(snapshot.parser_errors_json, []),
+        "decision_trace": json_load(snapshot.decision_trace_json, []),
         "created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
     }
 
@@ -111,11 +134,23 @@ def runtime_payload(db: Session, runtime: SessionState) -> dict:
         .order_by(Message.sequence.desc())
         .first()
     )
+    profile = json_load(runtime.profile_json, {})
+    initial_state = json_load(runtime.initial_state_json, {})
+    state = json_load(runtime.state_json, {})
+    state_schema = reconcile_state_schema(
+        profile.get("state_schema", {}) if isinstance(profile, dict) else {},
+        state,
+    )
+    if isinstance(profile, dict):
+        profile = dict(profile)
+        profile["state_schema"] = state_schema
+        profile["state_schema_summary"] = state_schema.get("summary", {})
     return {
         "session_id": runtime.session_id,
-        "profile": json_load(runtime.profile_json, {}),
-        "initial_state": json_load(runtime.initial_state_json, {}),
-        "state": json_load(runtime.state_json, {}),
+        "profile": profile,
+        "initial_state": initial_state,
+        "state": state,
+        "schema_validation": validate_state_against_schema(state, state_schema),
         "revision": runtime.revision or 0,
         "last_turn": snapshot_payload(latest),
         "updated_at": runtime.updated_at,

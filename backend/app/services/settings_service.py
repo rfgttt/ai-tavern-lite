@@ -54,6 +54,7 @@ class SettingsService:
         "username": "用户",
         "mock_llm": True,
         "auto_memory_extraction": False,
+        "auto_state_update_recovery": True,
         "custom_headers": {},
     }
 
@@ -69,6 +70,7 @@ class SettingsService:
         "max_tokens": "default_max_tokens",
         "context_window": "default_context_window",
         "auto_memory_extraction": "auto_memory_extraction",
+        "auto_state_update_recovery": "auto_state_update_recovery",
     }
 
     API_KEY_STORE = create_api_key_store(default_settings.api_key_secret_path)

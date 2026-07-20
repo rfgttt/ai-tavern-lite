@@ -11,6 +11,10 @@ class RuntimeStreamFilter:
         "<dice",
         "<battlecheck",
         "<battle",
+        "<text>",
+        "<text ",
+        "<status>",
+        "<status ",
     )
 
     def __init__(self):

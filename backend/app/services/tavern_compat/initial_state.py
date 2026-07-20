@@ -143,6 +143,22 @@ def _initvar_entries(normalized: dict) -> list[dict]:
     return result
 
 
+def _parse_initvar_content(content: str) -> dict[str, Any]:
+    """Parse the two common Tavern init-variable encodings safely."""
+    text = str(content or "").strip()
+    if not text:
+        return {}
+    fenced = re.fullmatch(r"```(?:json|yaml|yml)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
+    if fenced:
+        text = fenced.group(1).strip()
+    if text.startswith("{"):
+        payload = json.loads(text)
+        if not isinstance(payload, dict):
+            raise ValueError("[initvar] JSON 根节点必须是对象")
+        return payload
+    return parse_yaml_mapping_subset(text)
+
+
 def extract_card_variables(normalized: dict) -> InitialVariableResult:
     normalized = normalized if isinstance(normalized, dict) else {}
     extensions = _dict(normalized.get("extensions"))
@@ -161,8 +177,8 @@ def extract_card_variables(normalized: dict) -> InitialVariableResult:
         if not content:
             continue
         try:
-            variables = parse_yaml_mapping_subset(content)
-        except ValueError as error:
+            variables = _parse_initvar_content(content)
+        except (ValueError, json.JSONDecodeError) as error:
             warnings.append(f"[initvar] 解析失败: {error}")
             continue
         if variables:
@@ -237,6 +253,33 @@ def _put_if_present(target: dict[str, Any], key: str, value: Any) -> None:
         target[key] = copy.deepcopy(value)
 
 
+def _clean_projected_value(value: Any) -> Any:
+    """Remove MVU schema markers from player-facing projections only.
+
+    The complete card-owned structure remains untouched under ``custom`` so
+    future MVU commands can continue addressing its original paths.
+    """
+    if isinstance(value, list):
+        return [
+            _clean_projected_value(item)
+            for item in value
+            if item != "$__META_EXTENSIBLE__$"
+        ]
+    if isinstance(value, dict):
+        return {
+            str(key): _clean_projected_value(item)
+            for key, item in value.items()
+            if str(key) != "$meta" and item != "$__META_EXTENSIBLE__$"
+        }
+    return copy.deepcopy(value)
+
+
+def _mvu_value(value: Any) -> Any:
+    if isinstance(value, list) and len(value) == 2 and isinstance(value[1], str):
+        return _clean_projected_value(value[0])
+    return _clean_projected_value(value)
+
+
 def project_card_variables(state: dict) -> dict:
     """Project common card variable names into player-facing runtime sections.
 
@@ -261,18 +304,19 @@ def project_card_variables(state: dict) -> dict:
             world = value
             break
     if world:
-        _put_if_present(scene, "location", _case_get(world, ("当前地点", "地点", "位置", "location", "place")))
-        _put_if_present(scene, "time", _case_get(world, ("当前时间", "时间", "日期时间", "time", "datetime")))
-        _put_if_present(scene, "weather", _case_get(world, ("天气", "weather")))
-        _put_if_present(scene, "atmosphere", _case_get(world, ("氛围", "气氛", "环境", "atmosphere")))
-        _put_if_present(scene, "objective", _case_get(world, ("当前目标", "目标", "objective")))
+        _put_if_present(scene, "location", _mvu_value(_case_get(world, ("当前地点", "地点", "位置", "location", "place"))))
+        _put_if_present(scene, "time", _mvu_value(_case_get(world, ("当前时间", "时间", "日期时间", "time", "datetime"))))
+        _put_if_present(scene, "date", _mvu_value(_case_get(world, ("日期", "当前日期", "date"))))
+        _put_if_present(scene, "weather", _mvu_value(_case_get(world, ("天气", "weather"))))
+        _put_if_present(scene, "atmosphere", _mvu_value(_case_get(world, ("氛围", "气氛", "环境", "atmosphere"))))
+        _put_if_present(scene, "objective", _mvu_value(_case_get(world, ("当前目标", "目标", "objective"))))
         relation_value = _case_get(world, ("主角与角色的关系", "主角关系", "关系阶段", "relationship", "relation"))
         if relation_value in (None, ""):
             for key, value in world.items():
                 if "关系" in str(key) and not isinstance(value, (dict, list)):
                     relation_value = value
                     break
-        _put_if_present(relationship, "stage", relation_value)
+        _put_if_present(relationship, "stage", _mvu_value(relation_value))
 
     primary_name = str(character.get("name", "")).strip()
     primary: dict[str, Any] | None = None
@@ -290,15 +334,19 @@ def project_card_variables(state: dict) -> dict:
                 break
 
     if primary:
-        _put_if_present(relationship, "affection", _case_get(primary, ("好感度", "好感", "affection", "favorability", "affinity")))
-        _put_if_present(relationship, "trust", _case_get(primary, ("信任度", "信任", "trust")))
-        _put_if_present(relationship, "tension", _case_get(primary, ("张力", "tension")))
-        _put_if_present(relationship, "intimacy", _case_get(primary, ("亲密度", "亲密", "intimacy")))
-        _put_if_present(character, "state", _case_get(primary, ("当前状态", "状态", "state", "form")))
-        _put_if_present(character, "mood", _case_get(primary, ("当前情绪", "情绪", "mood", "emotion")))
-        _put_if_present(character, "emotion_intensity", _case_get(primary, ("情绪强度", "emotion_intensity", "emotionIntensity")))
-        _put_if_present(character, "expression", _case_get(primary, ("表情", "expression")))
-        _put_if_present(character, "outfit", _case_get(primary, ("服装", "衣着", "outfit")))
+        _put_if_present(relationship, "affection", _mvu_value(_case_get(primary, ("好感度", "好感", "affection", "favorability", "affinity"))))
+        _put_if_present(relationship, "trust", _mvu_value(_case_get(primary, ("信任度", "信任", "trust"))))
+        _put_if_present(relationship, "tension", _mvu_value(_case_get(primary, ("张力", "tension"))))
+        _put_if_present(relationship, "intimacy", _mvu_value(_case_get(primary, ("亲密度", "亲密", "intimacy"))))
+        _put_if_present(relationship, "fear", _mvu_value(_case_get(primary, ("害怕值", "恐惧值", "畏惧", "fear"))))
+        _put_if_present(relationship, "dependence", _mvu_value(_case_get(primary, ("依赖值", "依赖度", "dependence", "dependency"))))
+        _put_if_present(character, "state", _mvu_value(_case_get(primary, ("当前状态", "状态", "state", "form"))))
+        _put_if_present(character, "mood", _mvu_value(_case_get(primary, ("当前情绪", "情绪", "mood", "emotion"))))
+        _put_if_present(character, "emotion_intensity", _mvu_value(_case_get(primary, ("情绪强度", "emotion_intensity", "emotionIntensity"))))
+        _put_if_present(character, "expression", _mvu_value(_case_get(primary, ("表情", "expression"))))
+        _put_if_present(character, "outfit", _mvu_value(_case_get(primary, ("服装", "衣着", "outfit"))))
+        _put_if_present(character, "injuries", _mvu_value(_case_get(primary, ("身上的伤", "伤势", "伤口", "injuries"))))
+        _put_if_present(character, "important_memories", _mvu_value(_case_get(primary, ("重要记忆", "关键记忆", "important_memories"))))
 
     if had_scene or scene:
         result["scene"] = scene

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Code2, ShieldCheck, X } from 'lucide-react'
+import { Code2, RefreshCcw, ShieldCheck, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import AdventureSetupModal from './AdventureSetupModal'
 import BattleMap from './BattleMap'
@@ -12,6 +12,8 @@ import ManifestPanel from './ManifestPanel'
 import RelationshipStatus from './RelationshipStatus'
 import RpgStatus from './RpgStatus'
 import SceneStatus from './SceneStatus'
+import StateSchemaPanel from './StateSchemaPanel'
+import StateAliasRegistryPanel from './StateAliasRegistryPanel'
 import { battleFromState } from './utils'
 import { changedFromInitial, hasContent } from './runtimePresentation'
 import type { CardCompatibilityReport } from '@/types'
@@ -49,6 +51,16 @@ export default function RuntimePanel() {
     revision: runtime?.revision ?? 0,
     state,
   }), [profile, runtime?.revision, state])
+  const hasCardStateEmulation = Boolean(
+    profile?.capabilities?.mvu_state || profile?.capabilities?.status_placeholder || profile?.emulation?.status_panel?.enabled
+  )
+
+  const restoreInitialCardState = async () => {
+    if (!runtime || runtimeLoading) return
+    const confirmed = window.confirm('将当前角色状态恢复为角色卡初始变量。聊天记录不会删除，但当前数值进度会被重置。继续吗？')
+    if (!confirmed) return
+    await replaceRuntimeState(runtime.initial_state)
+  }
 
   if (!selectedCharacter || !currentSession) return null
 
@@ -72,7 +84,26 @@ export default function RuntimePanel() {
           <SceneStatus state={state} initialState={initialState} timeline={timeline} scenario={selectedCharacter.scenario}/>
 
           <CardCompatibilityPanel characterId={selectedCharacter.id} onLoaded={setCompatibility}/>
+          <StateSchemaPanel schema={profile?.state_schema} validation={runtime?.schema_validation}/>
+          <StateAliasRegistryPanel characterId={selectedCharacter.id}/>
           <ManifestPanel manifest={compatibility?.ui_manifest} state={state}/>
+
+          {hasCardStateEmulation ? (
+            <section className="runtime-card runtime-native-emulation-actions">
+              <div className="runtime-section-title"><RefreshCcw size={15}/><span>角色卡安全替代操作</span><span className="tag ml-auto">原生实现</span></div>
+              <p>卡内脚本不会直接执行；平台以受控原生能力还原其用途。</p>
+              <div className="runtime-native-emulation-actions__list">
+                <span><ShieldCheck size={13}/><b>重新处理变量</b><small>每轮缺失时自动补救</small></span>
+                <span><ShieldCheck size={13}/><b>快照 / 重演楼层</b><small>由下方状态时间线与回滚提供</small></span>
+              </div>
+              {profile?.recommended_context_window && profile.recommended_context_window > 8192 ? (
+                <small>该卡建议将“上下文窗口”设为至少 {profile.recommended_context_window}，以完整载入阶段语料。</small>
+              ) : null}
+              <button className="runtime-primary-action" onClick={() => void restoreInitialCardState()} disabled={runtimeLoading || Boolean(generatingMessageId)}>
+                <RefreshCcw size={14}/><span>重新读取初始变量</span>
+              </button>
+            </section>
+          ) : null}
 
           <RelationshipStatus
             relationship={state.relationship}

@@ -3,6 +3,22 @@ import { useState } from 'react'
 
 const isPrimitive = (value: unknown) => value == null || ['string', 'number', 'boolean'].includes(typeof value)
 
+const DISPLAY_LABELS: Record<string, string> = {
+  injuries: '身上的伤',
+  important_memories: '重要记忆',
+  emotion_intensity: '情绪强度',
+  mood: '情绪',
+  state: '当前状态',
+  expression: '表情',
+  outfit: '衣着',
+  location: '地点',
+  date: '日期',
+  time: '时间',
+  weather: '天气',
+}
+
+const displayName = (name: string) => DISPLAY_LABELS[name] || name
+
 const Primitive = ({ value }: { value: unknown }) => {
   if (typeof value === 'boolean') return <span className={`tag ${value ? 'tag-gold' : ''}`}>{value ? '是' : '否'}</span>
   if (typeof value === 'number') return <strong className="generic-data-number">{value}</strong>
@@ -12,7 +28,7 @@ const Primitive = ({ value }: { value: unknown }) => {
 
 function DataNode({ name, value, depth = 0 }: { name: string; value: unknown; depth?: number }) {
   const [open, setOpen] = useState(depth < 1)
-  if (isPrimitive(value)) return <div className="generic-data-row"><span>{name}</span><Primitive value={value}/></div>
+  if (isPrimitive(value)) return <div className="generic-data-row"><span>{displayName(name)}</span><Primitive value={value}/></div>
 
   const entries = Array.isArray(value)
     ? value.map((item, index) => [String(index + 1), item] as const)
@@ -21,7 +37,7 @@ function DataNode({ name, value, depth = 0 }: { name: string; value: unknown; de
   return (
     <div className="generic-data-group">
       <button aria-expanded={open} onClick={() => setOpen((current) => !current)}>
-        <ChevronRight size={12} className={open ? 'rotate-90' : ''}/><span>{name}</span><small>{entries.length}</small>
+        <ChevronRight size={12} className={open ? 'rotate-90' : ''}/><span>{displayName(name)}</span><small>{entries.length}</small>
       </button>
       {open ? <div className="generic-data-children">{entries.slice(0, 80).map(([key, item]) => <DataNode key={key} name={key} value={item} depth={depth + 1}/>)}</div> : null}
     </div>

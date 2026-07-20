@@ -60,6 +60,7 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
     username: '用户',
     mock_llm: true,
     auto_memory_extraction: false,
+    auto_state_update_recovery: true,
   })
 
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null)
@@ -104,6 +105,7 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
       username: settings.username,
       mock_llm: settings.mock_llm,
       auto_memory_extraction: settings.auto_memory_extraction,
+      auto_state_update_recovery: settings.auto_state_update_recovery,
     })
   }, [settings])
 
@@ -437,6 +439,21 @@ export default function SettingsPage({ embedded = false }: { embedded?: boolean 
                   自动提取记忆
                 </label>
                 <p className="text-[11px] text-tavern-text-muted">实验性功能：从对话中自动提取有价值的信息</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-tavern-bg-tertiary/30 border border-tavern-border-subtle">
+              <input
+                type="checkbox"
+                id="auto_state_update_recovery"
+                checked={formData.auto_state_update_recovery}
+                onChange={(e) => handleChange('auto_state_update_recovery', e.target.checked)}
+                className="w-4 h-4 accent-tavern-gold-500"
+              />
+              <div>
+                <label htmlFor="auto_state_update_recovery" className="text-sm text-tavern-text-primary cursor-pointer">
+                  自动补全角色状态更新
+                </label>
+                <p className="text-[11px] text-tavern-text-muted">角色卡声明变量协议但主回复漏写更新时，执行一次短小且受限的状态提取请求。</p>
               </div>
             </div>
           </SectionCard>

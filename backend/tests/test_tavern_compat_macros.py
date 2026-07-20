@@ -24,6 +24,53 @@ def test_formats_stat_data_as_readable_json():
     assert '"数值": 7' in result
 
 
+def test_reads_mvu_bracket_paths_and_get_message_variable_alias():
+    context = MacroContext(
+        char_name='穗秋生',
+        user_name='用户',
+        runtime_state={'custom': {'穗秋生': {'好感度': [5, '[0-100]爱意程度']}}},
+    )
+
+    result = resolve_safe_macros(
+        '{{getvar::stat_data.穗秋生.好感度[0]}}\n{{get_message_variable::stat_data}}',
+        context,
+    )
+
+    assert result.splitlines()[0] == '5'
+    assert '"穗秋生"' in result
+    assert '"好感度"' in result
+
+
+def test_controller_uses_mvu_tuple_value_for_stage_selection():
+    context = MacroContext(
+        char_name='穗秋生',
+        user_name='用户',
+        runtime_state={'custom': {'穗秋生': {
+            '好感度': [25, '[0-100]爱意程度'],
+            '害怕值': [90, '[0-100]恐惧程度'],
+            '依赖值': [100, '[0-100]依赖程度'],
+        }}},
+        lorebook_by_name={
+            '基础阶段': '基础阶段内容',
+            '阶段02': '阶段02内容',
+        },
+    )
+    text = """<%_
+const affection = getvar('stat_data.穗秋生.好感度[0]') || 5;
+_%>
+<% if (affection >= 21) { %>
+<%- await getwi(null, '阶段02') %>
+<% } else { %>
+<%- await getwi(null, '基础阶段') %>
+<% } %>"""
+
+    result = resolve_safe_macros(text, context)
+
+    assert '阶段02内容' in result
+    assert '基础阶段内容' not in result
+    assert '<%' not in result
+
+
 def test_safely_resolves_common_getwi_conditional_without_javascript_execution():
     context = MacroContext(
         char_name='A',
@@ -89,3 +136,24 @@ def test_prompt_builder_resolves_runtime_macros_and_disabled_getwi_catalog():
     assert '态度亲近' in system
     assert '保持距离' not in system
     assert '<%' not in system
+
+
+def test_prompt_builder_uses_card_talkativeness_as_safe_length_guidance():
+    import json
+    from types import SimpleNamespace
+
+    from app.services.prompt_builder.builder import PromptBuilder
+
+    character = SimpleNamespace(
+        name='角色甲', description='', personality='', scenario='',
+        normalized_json=json.dumps({
+            'extensions': {'talkativeness': '0.5'},
+            'system_prompt': '', 'creator_notes': '', 'mes_example': '',
+            'post_history_instructions': '',
+        }, ensure_ascii=False),
+    )
+
+    built = PromptBuilder(character).build(messages=[], lorebook_entries=[], memories=[])
+
+    assert '回复篇幅倾向' in built.messages[0]['content']
+    assert '4-7 个自然段' in built.messages[0]['content']

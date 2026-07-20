@@ -65,7 +65,9 @@ def test_completed_chat_records_diagnostic_summary(db_with_session, monkeypatch,
     assert latest["timing"]["total_ms"] >= 0
     assert latest["generation"]["chunks"] == 2
     assert latest["prompt"]["worldbook_entries"] >= 1
-    assert latest["state"]["patch_applied"] is True
+    assert latest["state"]["patch_applied"] is False
+    assert latest["state"]["state_changed"] is False
+    assert latest["state"]["state_update_source"] == "none"
     assert "content" not in latest
 
 

@@ -41,10 +41,12 @@ def test_analyze_card_recognizes_safe_runtime_capabilities():
 
     assert profile["mode"] == "adventure"
     assert profile["capabilities"]["mvu_state"] is True
+    assert profile["capabilities"]["mvu_json_patch_protocol"] is True
+    assert profile["capabilities"]["mvu_command_protocol"] is False
     assert profile["capabilities"]["dice"] is True
     assert profile["capabilities"]["battle"] is True
     assert profile["capabilities"]["worldbook"] is True
-    assert profile["script_execution"] == "disabled"
+    assert profile["script_execution"] == "safe-native-emulation"
     assert profile["native_renderers"] == ["state", "dice", "battle_check", "battle_map"]
     assert profile["regex_script_count"] == 3
 
@@ -88,6 +90,39 @@ def test_apply_patch_supports_delta_insert_and_clamps():
     assert result.state["player"]["conditions"] == ["poisoned"]
     assert result.state["custom"]["clue"] == "etched rune"
     assert result.rejected == []
+
+
+def test_apply_patch_supports_mvu_collection_ops_and_custom_stat_clamping():
+    from app.services.runtime.state_engine import apply_patch
+
+    state = {
+        'relationship': {},
+        'character': {'name': '穗秋生'},
+        'custom': {
+            '穗秋生': {
+                '好感度': [99, '[0-100]爱意程度'],
+                '害怕值': [95, '[0-100]恐惧程度'],
+                '身上的伤': [['头皮裂伤', '额头淤青'], '身体伤势列表'],
+                '重要记忆': [[], '发生重要事件时记录'],
+            },
+        },
+    }
+
+    result = apply_patch(state, [
+        {'op': 'increment', 'path': '/custom/穗秋生/好感度/0', 'value': 5},
+        {'op': 'append', 'path': '/custom/穗秋生/重要记忆/0', 'value': '第一次被温柔安慰'},
+        {'op': 'remove_at', 'path': '/custom/穗秋生/重要记忆/0', 'index': 0},
+        {'op': 'append', 'path': '/custom/穗秋生/重要记忆/0', 'value': '第一次被温柔安慰'},
+        {'op': 'remove_value', 'path': '/custom/穗秋生/身上的伤/0', 'value': '头皮裂伤'},
+    ])
+
+    assert result.rejected == []
+    assert result.state['custom']['穗秋生']['好感度'][0] == 100
+    assert result.state['custom']['穗秋生']['重要记忆'][0] == ['第一次被温柔安慰']
+    assert result.state['custom']['穗秋生']['身上的伤'][0] == ['额头淤青']
+    assert result.state['relationship']['affection'] == 100
+    assert result.state['relationship']['fear'] == 95
+    assert result.state['character']['important_memories'] == ['第一次被温柔安慰']
 
 
 def test_apply_patch_rejects_private_and_pollution_paths():

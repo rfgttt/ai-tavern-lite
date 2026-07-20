@@ -21,6 +21,7 @@ from ..services.runtime.session_service import (
     snapshot_payload,
 )
 from ..services.runtime.state_engine import serialize_state_document
+from ..services.runtime.state_schema import reconcile_state_schema
 
 router = APIRouter(tags=["runtime"])
 
@@ -37,7 +38,7 @@ def get_character_runtime_profile(character_id: str, db: Session = Depends(get_d
     character = db.query(Character).filter(Character.id == character_id).first()
     if not character:
         raise HTTPException(status_code=404, detail="角色不存在")
-    return character_profile(character)
+    return character_profile(character, db)
 
 
 @router.get("/sessions/{session_id}/runtime", response_model=RuntimeSessionResponse)
@@ -57,8 +58,13 @@ def replace_runtime_state(
 ):
     session = _get_session(db, session_id)
     runtime = ensure_session_state(db, session)
+    profile = json_load(runtime.profile_json, {})
+    schema = reconcile_state_schema(
+        profile.get("state_schema", {}) if isinstance(profile, dict) else {},
+        json_load(runtime.state_json, {}),
+    )
     try:
-        serialized = serialize_state_document(update.state)
+        serialized = serialize_state_document(update.state, schema=schema)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
     runtime.state_json = serialized

@@ -251,10 +251,18 @@ class MessageResponse(MessageBase):
             speakers = json.loads(data.pop("speaker_metadata_json", "{}") or "{}")
         except (TypeError, json.JSONDecodeError):
             speakers = {}
-        if not segments and data.get("content"):
-            parsed = parse_message_ast(data["content"])
-            segments = parsed["segments"]
-            speakers = parsed["speaker_metadata"]
+        content = str(data.get("content") or "")
+        should_reparse_status = not artifacts and bool(
+            re.search(r"<\s*(?:text(?:\s[^>]*)?|status(?:\s[^>]*)?)>", content, flags=re.IGNORECASE)
+        )
+        if content and (not segments or should_reparse_status):
+            parsed = parse_message_ast(content)
+            if not segments or parsed["artifacts"]:
+                segments = parsed["segments"]
+            artifacts = artifacts or parsed["artifacts"]
+            speakers = speakers or parsed["speaker_metadata"]
+            if parsed["artifacts"]:
+                data["content"] = parsed["content"]
         data["segments"] = segments
         data["artifacts"] = artifacts
         data["speaker_metadata"] = speakers
@@ -313,6 +321,7 @@ class SettingsResponse(BaseModel):
     username: str = "用户"
     mock_llm: bool = False
     auto_memory_extraction: bool = False
+    auto_state_update_recovery: bool = True
     api_key_configured: bool = False
     api_key_masked: str = ""
     api_key_storage: str = "database_legacy"
@@ -335,6 +344,7 @@ class SettingsUpdate(BaseModel):
     username: Optional[str] = Field(None, min_length=1, max_length=100)
     mock_llm: Optional[bool] = None
     auto_memory_extraction: Optional[bool] = None
+    auto_state_update_recovery: Optional[bool] = None
     custom_headers: Optional[Dict[str, str]] = None
     clear_api_key: Optional[bool] = False
 
@@ -543,6 +553,7 @@ class TurnRuntimeResponse(BaseModel):
     triggered_lorebook: List[Dict[str, Any]] = Field(default_factory=list)
     rejected_patch: List[Dict[str, Any]] = Field(default_factory=list)
     parser_errors: List[str] = Field(default_factory=list)
+    decision_trace: List[Dict[str, Any]] = Field(default_factory=list)
     created_at: Optional[datetime] = None
 
 
@@ -551,6 +562,7 @@ class RuntimeSessionResponse(BaseModel):
     profile: Dict[str, Any] = Field(default_factory=dict)
     initial_state: Dict[str, Any] = Field(default_factory=dict)
     state: Dict[str, Any] = Field(default_factory=dict)
+    schema_validation: Dict[str, Any] = Field(default_factory=dict)
     revision: int = 0
     last_turn: Optional[TurnRuntimeResponse] = None
     updated_at: Optional[datetime] = None
@@ -606,3 +618,34 @@ class BranchResponse(BaseModel):
     message_count: int
     runtime_revision: int
     created_at: datetime
+
+
+class CharacterStateAliasCreate(BaseModel):
+    alias: str = Field(..., min_length=1, max_length=80)
+    semantic: str = Field(..., min_length=1, max_length=120)
+
+
+class CharacterStateAliasResponse(BaseModel):
+    id: str
+    alias: str
+    alias_key: str
+    semantic: str
+    canonical_path: str
+    source: str = "user_confirmed"
+    confidence: float = 1.0
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class CharacterStateAliasRegistryResponse(BaseModel):
+    schema_id: str = Field(alias="schema")
+    version: int
+    character_id: str
+    character_name: str
+    revision: str
+    confirmed: List[Dict[str, Any]] = Field(default_factory=list)
+    suggestions: List[Dict[str, Any]] = Field(default_factory=list)
+    targets: List[Dict[str, Any]] = Field(default_factory=list)
+    summary: Dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(populate_by_name=True)

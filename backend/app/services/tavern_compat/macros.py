@@ -25,13 +25,24 @@ _GETWI = re.compile(
 )
 _GETVAR_MACRO = re.compile(r"\{\{\s*getvar::([^{}]+?)\s*\}\}", re.IGNORECASE)
 _FORMAT_VAR_MACRO = re.compile(r"\{\{\s*format_message_variable::([^{}]+?)\s*\}\}", re.IGNORECASE)
+_MESSAGE_VAR_MACRO = re.compile(r"\{\{\s*get_message_variable::([^{}]+?)\s*\}\}", re.IGNORECASE)
+_PATH_TOKEN = re.compile(r"([^\.\[\]]+)|\[(\d+)\]")
+
+
+def _path_parts(raw_path: str) -> list[str]:
+    parts: list[str] = []
+    for match in _PATH_TOKEN.finditer(str(raw_path or "").strip().strip(".")):
+        value = match.group(1) if match.group(1) is not None else match.group(2)
+        if value is not None and value != "":
+            parts.append(value)
+    return parts
 
 
 def _lookup_path(context: MacroContext, raw_path: str) -> Any:
     path = str(raw_path or "").strip().strip(".")
     if not path:
         return ""
-    parts = [part for part in path.split(".") if part]
+    parts = _path_parts(path)
     state: Any = context.runtime_state if isinstance(context.runtime_state, dict) else {}
 
     if parts and parts[0].lower() in {"stat_data", "variables", "vars"}:
@@ -217,6 +228,10 @@ def resolve_safe_macros(text: str, context: MacroContext) -> str:
 
     result = _GETVAR_MACRO.sub(lambda m: _display_value(_lookup_path(context, m.group(1))), result)
     result = _FORMAT_VAR_MACRO.sub(
+        lambda m: _display_value(_lookup_path(context, m.group(1)), pretty=True),
+        result,
+    )
+    result = _MESSAGE_VAR_MACRO.sub(
         lambda m: _display_value(_lookup_path(context, m.group(1)), pretty=True),
         result,
     )

@@ -24,13 +24,14 @@ export default function SceneStatus({
   const activity = activityForRoots(timeline, ['scene', '场景', '环境'])
 
   const location = visibleText(scene.location ?? scene['地点'] ?? scene['位置'])
+  const date = visibleText(scene.date ?? scene['日期'] ?? scene['当前日期'])
   const time = visibleText(scene.time ?? scene['时间'])
   const weather = visibleText(scene.weather ?? scene['天气'] ?? scene['环境'])
   const atmosphere = visibleText(scene.atmosphere ?? scene['氛围'] ?? scene['气氛'])
   const objective = visibleText(scene.objective ?? scene['目标'] ?? scene['当前目标'])
   const scenarioText = visibleText(scenario)
   const hasRuntimeScene = hasContent(scene) && JSON.stringify(scene) !== JSON.stringify(initialScene)
-  const established = Boolean(location || time || weather || atmosphere || objective || scenarioText)
+  const established = Boolean(location || date || time || weather || atmosphere || objective || scenarioText)
 
   return (
     <section className={`runtime-scene-card ${established ? '' : 'runtime-scene-card--empty'}`}>
@@ -47,6 +48,7 @@ export default function SceneStatus({
           <h3>{location || scenarioText}</h3>
           <div className="runtime-scene-facts">
             {location && scenarioText && location !== scenarioText ? <span><MapPin size={12}/>{location}</span> : null}
+            {date ? <span><Clock3 size={12}/>{date}</span> : null}
             {time ? <span><Clock3 size={12}/>{time}</span> : null}
             {weather ? <span><CloudSun size={12}/>{weather}</span> : null}
           </div>

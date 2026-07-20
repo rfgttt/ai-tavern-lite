@@ -112,3 +112,38 @@ def test_truncate_text_includes_ellipsis_inside_token_limit():
 
     assert estimate_tokens(clipped) <= 9
     assert clipped
+
+
+def test_safe_stage_controller_borrows_only_unused_optional_budget(db_with_character):
+    from app.services.lorebook.service import LorebookEntry
+    from app.services.prompt_builder.builder import PromptBuilder
+
+    _, character = db_with_character
+    character.description = ''
+    character.personality = ''
+    character.scenario = ''
+    controller = LorebookEntry({
+        'id': 40,
+        'comment': '控制器',
+        'content': "<%_ const affection=getvar('stat_data.角色.好感度[0]'); _%><%- await getwi(null, '阶段定义') %>",
+        'constant': True,
+        'enabled': True,
+        'insertion_order': 100,
+    })
+    stage = LorebookEntry({
+        'id': 41,
+        'comment': '阶段定义',
+        'content': '完整阶段标记 ' + ('角色细节 ' * 620),
+        'constant': False,
+        'enabled': False,
+        'insertion_order': 4,
+    })
+
+    built = PromptBuilder(character, context_window=8192, max_new_tokens=1024).build(
+        messages=[], lorebook_entries=[controller], lorebook_catalog=[controller, stage], memories=[],
+        runtime_profile={}, runtime_state={'custom': {'角色': {'好感度': [5, '描述']}}},
+    )
+
+    assert '完整阶段标记' in built.messages[0]['content']
+    assert built.section_truncated['character'] is False
+    assert built.section_budgets['character'] >= 1576

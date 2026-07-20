@@ -18,6 +18,12 @@ def is_character_core_lore(entry: Any) -> bool:
     content = str(getattr(entry, "content", "") or "").lstrip().lower()
     if any(hint in comment for hint in _CHARACTER_CORE_HINTS):
         return True
+    # Tavern cards often keep the active stage selector in a constant entry named
+    # “控制器”. It is not executable here: the safe macro interpreter only resolves
+    # getvar conditions and getwi references. Treating it as character-core content
+    # prevents a large stage definition from being truncated behind ordinary lore.
+    if any(hint in comment for hint in ("控制器", "stage controller", "character controller")) and "getwi(" in content:
+        return True
     return bool(re.match(r"<(?:character|persona|character_profile)\b", content, flags=re.IGNORECASE))
 
 _RUNTIME_PROTOCOL_HINTS = (

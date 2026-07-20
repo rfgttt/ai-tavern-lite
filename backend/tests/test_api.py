@@ -281,6 +281,30 @@ class TestCharacterAPI:
         assert data["name"] == "测试角色 V2"
         assert "id" in data
 
+    def test_import_filters_blank_duplicate_alternate_greetings(self, test_db, sample_v2_character_json):
+        """Malformed optional greetings must not make character responses return 500."""
+        client = self._get_client(test_db)
+        card = dict(sample_v2_character_json)
+        card["alternate_greetings"] = ["  备用开场  ", "", "   ", "备用开场"]
+
+        response = client.post(
+            "/api/characters/import",
+            files={
+                "file": (
+                    "blank-greetings.json",
+                    json.dumps(card, ensure_ascii=False).encode("utf-8"),
+                    "application/json",
+                )
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["alternate_greetings"] == ["备用开场"]
+
+        listed = client.get("/api/characters")
+        assert listed.status_code == 200
+        assert listed.json()[0]["alternate_greetings"] == ["备用开场"]
+
     def test_list_characters(self, db_with_character):
         """Test listing characters."""
         db, char = db_with_character

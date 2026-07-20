@@ -28,7 +28,7 @@ def test_alembic_builds_and_validates_a_fresh_database(tmp_path):
     revision = upgrade_database(engine)
     validation = validate_database_schema(engine)
 
-    assert revision == get_head_revision() == "20260717_0001"
+    assert revision == get_head_revision() == "20260720_0003"
     assert validation.revision == validation.head_revision
     assert validation.table_count == len(Base.metadata.tables)
     assert set(Base.metadata.tables) <= set(inspect(engine).get_table_names())

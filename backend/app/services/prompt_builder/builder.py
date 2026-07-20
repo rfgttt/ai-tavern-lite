@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass, field
 from ...db.models import Message, Character, Memory
 from ..character_parser.parser import replace_template_vars
@@ -8,6 +8,7 @@ from ...core.logging import logger
 from ..runtime.prompt import build_runtime_prompt
 from ..tavern_compat.macros import MacroContext, resolve_safe_macros
 from ..tavern_compat.lore import is_character_core_lore, is_runtime_protocol_lore
+from ..tavern_compat.emulation import sanitize_history_content
 from ..card_security import neutralize_prompt_content
 from .planner import build_section_budgets, truncate_text, select_items_with_budget
 
@@ -174,6 +175,7 @@ class PromptBuilder:
             runtime_state=runtime_state or {},
             lorebook_by_name=lorebook_by_name,
         )
+        emulation_manifest = self._emulation_manifest()
         full_mem_text = neutralize_prompt_content(
             MemoryService.build_memory_text(memories)
         ) if memories else ""
@@ -227,19 +229,38 @@ class PromptBuilder:
         ]
 
         base_char_text = "\n\n".join(char_parts)
-        remaining_character_budget = max(0, budgets["character"] - estimate_tokens(base_char_text))
+        platform_unused = max(0, budgets["platform"] - estimate_tokens(platform_rules))
+        memory_unused = max(0, budgets["memory"] - estimate_tokens(mem_text))
+        post_unused = max(0, budgets["post_history"] - estimate_tokens(post_hist_text))
+        flexible_spare = platform_unused + memory_unused + post_unused
+
+        # A safe getwi stage controller is part of the acting character, not ordinary
+        # optional lore. Let it borrow only genuinely unused platform/memory/post
+        # budget so the complete active stage survives on 8K contexts without
+        # reducing the planned recent-history floor.
+        full_core_tokens = estimate_tokens("【角色卡核心设定】") + sum(
+            estimate_tokens(
+                f"【{neutralize_prompt_content(str(entry.comment or f'条目 #{entry.id}'))}】\n"
+                f"{resolved_lore.get(id(entry), '').strip()}"
+            )
+            for entry in character_lore
+        )
+        desired_character_tokens = estimate_tokens(base_char_text) + full_core_tokens + 32
+        character_borrow = min(
+            flexible_spare,
+            max(0, desired_character_tokens - budgets["character"]),
+        )
+        character_budget = budgets["character"] + character_borrow
+        remaining_character_budget = max(0, character_budget - estimate_tokens(base_char_text))
         selected_character_lore, core_text, core_source_text, core_blocks = _select_lore_text(
             character_lore, remaining_character_budget, resolved_lore, "【角色卡核心设定】"
         )
         if core_text:
             char_parts.append(core_text)
         full_char_info = "\n\n".join(char_parts)
-        char_info = truncate_text(full_char_info, budgets["character"], estimate_tokens)
+        char_info = truncate_text(full_char_info, character_budget, estimate_tokens)
 
-        platform_unused = max(0, budgets["platform"] - estimate_tokens(platform_rules))
-        memory_unused = max(0, budgets["memory"] - estimate_tokens(mem_text))
-        post_unused = max(0, budgets["post_history"] - estimate_tokens(post_hist_text))
-        flexible_spare = platform_unused + memory_unused + post_unused
+        flexible_spare = max(0, flexible_spare - character_borrow)
         # Keep the ordinary World Info cap stable. Unused platform/memory/post-history
         # budget is lent only to card runtime protocols, which otherwise crowd out
         # character and world definitions on MVU-heavy cards.
@@ -314,10 +335,15 @@ class PromptBuilder:
         available_history = max(min(budgets["history"], self.context_budget), available_history)
         max_possible_history = max(0, self.context_budget - fixed_tokens - post_tokens - pending_tokens)
         available_history = min(available_history, max_possible_history)
-        trimmed_messages, hist_tokens = self._trim_history(messages, available_history)
+        trimmed_messages, hist_tokens = self._trim_history(
+            messages,
+            available_history,
+            macro_context,
+            emulation_manifest,
+        )
         history_content = "\n\n".join(
             f"[{message.role} · sequence={getattr(message, 'sequence', '—')}]\n"
-            f"{resolve_safe_macros(message.content, macro_context)}"
+            f"{self._history_content(message.content, macro_context, emulation_manifest)}"
             for message in trimmed_messages
         )
 
@@ -347,9 +373,11 @@ class PromptBuilder:
             post_hist_text=post_hist_text,
             user_message=pending_user_message,
             macro_context=macro_context,
+            emulation_manifest=emulation_manifest,
         )
         total_tokens = sum(section.estimated_tokens for section in sections) + pending_tokens
         effective_budgets = dict(budgets)
+        effective_budgets["character"] = character_budget
         effective_budgets["runtime"] = runtime_budget
         effective_budgets["history"] = available_history
         budget_marker = "…（该部分因上下文预算截断）"
@@ -456,6 +484,21 @@ class PromptBuilder:
         if creator_notes:
             parts.append(f"\n创作者备注：{neutralize_prompt_content(creator_notes)}")
 
+        extensions = norm.get("extensions") if isinstance(norm.get("extensions"), dict) else {}
+        raw_talkativeness = extensions.get("talkativeness", norm.get("talkativeness"))
+        try:
+            talkativeness = max(0.0, min(1.0, float(raw_talkativeness)))
+        except (TypeError, ValueError):
+            talkativeness = None
+        if talkativeness is not None:
+            if talkativeness < 0.25:
+                guidance = "偏简洁，但仍需完整回应当前动作与情绪；通常至少 2-4 个自然段。"
+            elif talkativeness < 0.65:
+                guidance = "中等偏详细；通常写 4-7 个自然段，兼顾动作、感官、心理和对话，不要只回复一两句。"
+            else:
+                guidance = "偏详细；通常写 6-10 个自然段，充分展开动作、环境、情绪变化和对话，但避免重复灌水。"
+            parts.append(f"\n回复篇幅倾向：{guidance}")
+
         mes_example = norm.get("mes_example", "")
         if mes_example:
             parts.append(f"\n对话示例：\n{neutralize_prompt_content(mes_example)}")
@@ -474,19 +517,47 @@ class PromptBuilder:
         text = norm.get("post_history_instructions", "")
         return neutralize_prompt_content(resolve_safe_macros(text, macro_context)) if text else ""
 
+    def _emulation_manifest(self) -> Dict[str, Any]:
+        import json
+        try:
+            normalized = json.loads(self.character.normalized_json) if self.character.normalized_json else {}
+        except (json.JSONDecodeError, TypeError):
+            normalized = {}
+        extensions = normalized.get("extensions") if isinstance(normalized.get("extensions"), dict) else {}
+        manifest = extensions.get("ai_tavern_emulation")
+        return manifest if isinstance(manifest, dict) else {}
+
+    @staticmethod
+    def _history_content(
+        content: str,
+        macro_context: MacroContext,
+        emulation_manifest: Dict[str, Any],
+    ) -> str:
+        resolved = resolve_safe_macros(content or "", macro_context)
+        return sanitize_history_content(resolved, emulation_manifest)
+
     def _trim_history(
         self,
         messages: List[Message],
-        max_tokens: int
+        max_tokens: int,
+        macro_context: Optional[MacroContext] = None,
+        emulation_manifest: Optional[Dict[str, Any]] = None,
     ) -> Tuple[List[Message], int]:
-        """Keep the newest contiguous history suffix that fits the budget."""
+        """Keep the newest contiguous sanitized history suffix that fits the budget.
+
+        Optional defaults preserve the small internal helper contract used by older
+        tests and integrations while production callers pass the full card context.
+        """
         if not messages or max_tokens <= 0:
             return [], 0
 
+        effective_context = macro_context or MacroContext(char_name="", user_name="")
+        effective_manifest = emulation_manifest or {}
         kept: List[Message] = []
         total_tokens = 0
         for msg in reversed(messages):
-            msg_tokens = estimate_tokens(msg.content)
+            cleaned = self._history_content(msg.content, effective_context, effective_manifest)
+            msg_tokens = estimate_tokens(cleaned)
             if total_tokens + msg_tokens > max_tokens:
                 break
             kept.append(msg)
@@ -506,6 +577,7 @@ class PromptBuilder:
         post_hist_text: str,
         user_message: str,
         macro_context: MacroContext,
+        emulation_manifest: Dict[str, Any],
     ) -> List[Dict[str, str]]:
         """Assemble all parts into OpenAI-compatible messages list."""
         messages = []
@@ -525,7 +597,9 @@ class PromptBuilder:
         # Add history messages
         for msg in history_messages:
             role = msg.role
-            content = resolve_safe_macros(msg.content, macro_context)
+            content = self._history_content(msg.content, macro_context, emulation_manifest)
+            if not content:
+                continue
             if role == "assistant":
                 content = neutralize_prompt_content(content)
             messages.append({"role": role, "content": content})

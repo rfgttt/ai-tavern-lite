@@ -63,8 +63,8 @@ docs/assets/04-runtime-timeline.png
 截取：
 
 ```text
-161 passed
-36 passed
+312 passed
+79 passed
 RELEASE VERIFICATION PASSED
 ```
 
@@ -77,8 +77,8 @@ docs/assets/05-release-verification.png
 截取：
 
 ```text
-Current revision: 20260717_0001
-Head revision:    20260717_0001
+Current revision: 20260720_0003
+Head revision:    20260720_0003
 Status:           up to date
 ```
 

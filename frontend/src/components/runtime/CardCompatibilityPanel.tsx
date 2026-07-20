@@ -21,6 +21,9 @@ const RUNTIME_LABELS: Record<string, string> = {
   read_only_macros: '只读酒馆宏',
   dynamic_templates: '动态模板',
   status_placeholder: '状态栏投影',
+  text_status_protocol: '文本状态栏协议',
+  formal_state_schema: 'Formal State Schema',
+  card_scoped_aliases: '角色卡字段别名',
   external_javascript: '外部 JavaScript',
 }
 

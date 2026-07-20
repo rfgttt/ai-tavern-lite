@@ -1,10 +1,24 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, AsyncIterator, Optional
+from urllib.parse import urlparse
+from dataclasses import dataclass
 import asyncio
 import json
 from ...core.logging import logger
 from ...core.config import settings
 from ...core.security import validate_outbound_url
+
+
+@dataclass(frozen=True)
+class CompletionResult:
+    content: str
+    finish_reason: str = ""
+    response_type: str = "chat_completion"
+    reasoning_characters: int = 0
+    reasoning_tokens: int = 0
+    completion_tokens: int = 0
+    requested_max_tokens: int = 0
+    request_profile: str = "generic_nonstream"
 
 
 class LLMProvider(ABC):
@@ -26,6 +40,33 @@ class LLMProvider(ABC):
     ) -> AsyncIterator[str]:
         """Stream chat completion response."""
         pass
+
+    async def complete_once(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.0,
+        top_p: Optional[float] = None,
+        max_tokens: int = 1024,
+        custom_headers: Optional[Dict[str, str]] = None,
+    ) -> CompletionResult:
+        """Return one complete response. Compatibility fallback for test providers."""
+        chunks: list[str] = []
+        kwargs: Dict[str, Any] = {
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+            "custom_headers": custom_headers,
+        }
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+        async for chunk in self.chat_completion(**kwargs):
+            chunks.append(str(chunk))
+        return CompletionResult(
+            content="".join(chunks),
+            response_type="compat_stream_adapter",
+            requested_max_tokens=max_tokens,
+        )
 
     @abstractmethod
     async def test_connection(self, custom_headers: Optional[Dict[str, str]] = None) -> tuple[bool, str]:
@@ -93,6 +134,22 @@ class MockLLMProvider(LLMProvider):
                 break
             yield char
             await asyncio.sleep(0.02)
+
+    async def complete_once(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.0,
+        top_p: Optional[float] = None,
+        max_tokens: int = 1024,
+        custom_headers: Optional[Dict[str, str]] = None,
+    ) -> CompletionResult:
+        return CompletionResult(
+            content='{"operations":[]}',
+            finish_reason="stop",
+            response_type="mock_chat_completion",
+            requested_max_tokens=max_tokens,
+            request_profile="mock_nonstream",
+        )
 
     async def test_connection(self, custom_headers: Optional[Dict[str, str]] = None) -> tuple[bool, str]:
         return True, "Mock 模式连接正常"
@@ -172,6 +229,89 @@ class OpenAICompatibleProvider(LLMProvider):
                 if secret and secret in error_msg:
                     error_msg = error_msg.replace(secret, "***")
             logger.error(f"LLM request failed: {error_msg}")
+            raise RuntimeError(error_msg) from e
+
+    def _is_official_deepseek_v4(self) -> bool:
+        try:
+            hostname = (urlparse(self.base_url).hostname or "").lower().rstrip(".")
+        except ValueError:
+            return False
+        return hostname == "api.deepseek.com" and self.model.strip().lower().startswith("deepseek-v4")
+
+    @staticmethod
+    def _usage_value(source: Any, name: str) -> int:
+        value = getattr(source, name, 0) if source is not None else 0
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    async def complete_once(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.0,
+        top_p: Optional[float] = None,
+        max_tokens: int = 1024,
+        custom_headers: Optional[Dict[str, str]] = None,
+    ) -> CompletionResult:
+        request_profile = (
+            "deepseek_non_thinking"
+            if self._is_official_deepseek_v4()
+            else "generic_nonstream"
+        )
+        if self._cancelled:
+            return CompletionResult(
+                content="",
+                finish_reason="cancelled",
+                response_type="chat_completion",
+                requested_max_tokens=max_tokens,
+                request_profile=request_profile,
+            )
+        client = self._get_client()
+        request_kwargs: Dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        if top_p is not None:
+            request_kwargs["top_p"] = top_p
+        if custom_headers:
+            request_kwargs["extra_headers"] = custom_headers
+        if request_profile == "deepseek_non_thinking":
+            request_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+        try:
+            response = await client.chat.completions.create(**request_kwargs)
+            choice = response.choices[0] if getattr(response, "choices", None) else None
+            message = getattr(choice, "message", None) if choice is not None else None
+            content = getattr(message, "content", "") if message is not None else ""
+            reasoning = getattr(message, "reasoning_content", "") if message is not None else ""
+            if not reasoning and message is not None:
+                model_extra = getattr(message, "model_extra", None)
+                if isinstance(model_extra, dict):
+                    reasoning = model_extra.get("reasoning_content", "")
+            usage = getattr(response, "usage", None)
+            details = getattr(usage, "completion_tokens_details", None) if usage is not None else None
+            return CompletionResult(
+                content=str(content or ""),
+                finish_reason=str(getattr(choice, "finish_reason", "") or ""),
+                response_type=type(response).__name__,
+                reasoning_characters=len(str(reasoning or "")),
+                reasoning_tokens=self._usage_value(details, "reasoning_tokens"),
+                completion_tokens=self._usage_value(usage, "completion_tokens"),
+                requested_max_tokens=max_tokens,
+                request_profile=request_profile,
+            )
+        except Exception as e:
+            error_msg = str(e)
+            secrets = [self.api_key]
+            if custom_headers:
+                secrets.extend(value for value in custom_headers.values() if isinstance(value, str))
+            for secret in secrets:
+                if secret and secret in error_msg:
+                    error_msg = error_msg.replace(secret, "***")
+            logger.error(f"LLM non-stream request failed: {error_msg}")
             raise RuntimeError(error_msg) from e
 
     async def test_connection(self, custom_headers: Optional[Dict[str, str]] = None) -> tuple[bool, str]:

@@ -20,6 +20,7 @@ from ..prompt_builder.inspection import build_prompt_inspection
 from ..runtime.session_service import ensure_session_state, json_load
 from ..settings_service import SettingsService
 from ..card_security import runtime_safe_normalized
+from ..tavern_compat.lore import is_runtime_protocol_lore
 from .context import ChatStreamContext
 from .errors import ChatServiceError
 from .helpers import (
@@ -171,6 +172,13 @@ class ChatPreparationService:
             group_characters=group_characters,
         )
 
+        state_update_rules = "\n\n".join(
+            built_prompt.lorebook_injected_content.get(id(entry), "").strip()
+            for entry in triggered_lorebook
+            if is_runtime_protocol_lore(entry)
+            and built_prompt.lorebook_injected_content.get(id(entry), "").strip()
+        )[:8_000]
+
         return ChatStreamContext(
             request_id=request_id,
             started_at=started_at,
@@ -197,9 +205,11 @@ class ChatPreparationService:
                 set(built_prompt.selected_lorebook_ids),
             ),
             runtime_profile=runtime_profile,
+            state_update_rules=state_update_rules,
             state_before=state_before,
             runtime_revision_before=runtime_revision_before,
             provider=provider,
+            provider_factory=self.provider_factory,
         )
 
     def prepare_regeneration(self, request: ChatRequest) -> ChatRequest:

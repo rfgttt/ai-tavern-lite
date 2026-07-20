@@ -78,18 +78,34 @@ def build_compatibility_report(normalized: dict) -> dict:
     helper_scripts = _helper_scripts(extensions)
     metadata = _metadata(normalized, entries, regex_scripts, helper_scripts)
     ui_manifest = _dict(extensions.get("ai_tavern_ui"))
+    emulation = _dict(extensions.get("ai_tavern_emulation"))
+    emulation_source = _dict(emulation.get("source"))
+    emulated_regex_count = int(emulation_source.get("regex_script_count", 0) or 0)
+    emulated_helper_count = int(emulation_source.get("helper_script_count", 0) or 0)
     assets = _list(normalized.get("assets"))
     initial = extract_card_variables(normalized)
+    from ..runtime.card_profile import analyze_card
+    runtime_profile = analyze_card(normalized)
+    state_schema_summary = _dict(runtime_profile.get("state_schema_summary"))
+
+    text_status_protocol = bool(
+        re.search(r"<\s*text(?:\s[^>]*)?>.*?<\s*end\s*>", metadata, re.IGNORECASE | re.DOTALL)
+        or re.search(r"<\s*status(?:\s[^>]*)?>.*?<\s*/\s*status\s*>", metadata, re.IGNORECASE | re.DOTALL)
+        or ("[环境]" in metadata and ("[角色状态" in metadata or "[人物状态" in metadata))
+    )
 
     capabilities = {
         "worldbook": bool(entries),
         "alternate_greetings": bool(_list(normalized.get("alternate_greetings"))),
-        "regex": bool(regex_scripts),
+        "regex": bool(regex_scripts or emulated_regex_count),
         "mvu": any(term in metadata for term in ("updatevariable", "update_variable", "jsonpatch", "mvu", "变量更新")),
         "dice": bool(re.search(r"<dice\b|掷骰|骰子", metadata, re.IGNORECASE)),
         "battle_check": bool(re.search(r"battlecheck|战斗检定", metadata, re.IGNORECASE)),
         "battle": bool(re.search(r"<battle\b|战斗面板|tactical map", metadata, re.IGNORECASE)),
-        "status_panel": any(term in metadata for term in ("statusplaceholder", "状态栏", "角色面板")),
+        "status_panel": bool(_dict(emulation.get("status_panel")).get("enabled")) or "statusplaceholder" in metadata,
+        "text_status_protocol": text_status_protocol,
+        "formal_state_schema": bool(state_schema_summary.get("field_count")),
+        "card_scoped_aliases": True,
         "ui_manifest": ui_manifest.get("schema") == "ai-tavern-ui/1",
         "assets": bool(assets),
         "group_greetings": bool(_list(normalized.get("group_only_greetings"))),
@@ -140,6 +156,24 @@ def build_compatibility_report(normalized: dict) -> dict:
             "status": "supported" if capabilities["status_panel"] else "absent",
             "summary": "状态占位符会转换为原生安全状态栏" if capabilities["status_panel"] else "未检测到状态栏占位符",
         },
+        "text_status_protocol": {
+            "status": "supported" if capabilities["text_status_protocol"] else "absent",
+            "summary": "文本状态块会解析为原生安全面板；未知字段保留为文本" if capabilities["text_status_protocol"] else "未检测到文本状态栏协议",
+        },
+        "formal_state_schema": {
+            "status": "supported" if capabilities["formal_state_schema"] else "absent",
+            "source": "runtime_and_card",
+            "summary": (
+                f"已建立 {state_schema_summary.get('field_count', 0)} 个字段定义，其中 "
+                f"{state_schema_summary.get('constrained_count', 0)} 个带范围约束"
+                if capabilities["formal_state_schema"] else "未能建立状态 Schema"
+            ),
+        },
+        "card_scoped_aliases": {
+            "status": "supported",
+            "source": "platform_registry",
+            "summary": "支持当前角色卡范围内的候选别名、人工确认与 canonical path 规范化；不会创建全局映射",
+        },
         "external_javascript": {
             "status": "isolated" if external_js or helper_scripts else "absent",
             "summary": "外部脚本与任意 Tavern Helper JavaScript 被隔离，不会加载或执行" if external_js or helper_scripts else "未检测到外部脚本",
@@ -149,16 +183,18 @@ def build_compatibility_report(normalized: dict) -> dict:
     unknown_extensions = sorted(key for key in extensions.keys() if key not in KNOWN_EXTENSIONS)
     warnings: list[str] = []
     unsupported: list[str] = []
-    if regex_scripts:
-        warnings.append("Regex 的隐藏/占位协议可兼容；任意 HTML、CSS 脚本不会直接进入主页面。")
-    if helper_scripts:
-        warnings.append("Tavern Helper 采用安全兼容子集，不执行任意 JavaScript。")
+    if regex_scripts or emulated_regex_count:
+        warnings.append("Regex 的隐藏/占位/状态栏意图会转换为原生安全组件；任意 HTML、CSS 脚本不会直接进入主页面。")
+    if helper_scripts or emulated_helper_count:
+        warnings.append("Tavern Helper 按钮和变量意图采用原生安全替代，不执行任意 JavaScript。")
         unsupported.append("arbitrary_tavern_helper_javascript")
     if has_ejs:
         warnings.append("EJS 仅解释只读变量条件与 getwi 选择；复杂代码会被移除。")
         unsupported.append("arbitrary_ejs_javascript")
     if external_js:
         unsupported.append("external_javascript_imports")
+    if capabilities["text_status_protocol"]:
+        warnings.append("文本状态栏仅按声明式纯文本协议解析；原卡 Regex、HTML、CSS 和 JavaScript 不会执行。")
     warnings.extend(initial.warnings)
 
     def detail(key: str, label: str, status: str, summary: str) -> dict:
@@ -180,8 +216,8 @@ def build_compatibility_report(normalized: dict) -> dict:
             f"已识别 {len(entries)} 条启用条目；另保留 {len(all_entries) - len(entries)} 条关闭条目用于 initvar/getwi" if all_entries else "角色卡未包含世界书条目",
         ),
         detail(
-            "regex", "Regex 显示规则", "partial" if regex_scripts else "absent",
-            f"发现 {len(regex_scripts)} 条；隐藏变量与状态占位可转换，任意 HTML/脚本已隔离" if regex_scripts else "未发现 Regex 规则",
+            "regex", "Regex 显示规则", "supported" if emulation else "partial" if regex_scripts else "absent",
+            f"已将 {emulated_regex_count or len(regex_scripts)} 条脚本意图转换为声明式原生显示；原始 HTML/脚本已隔离" if emulation else f"发现 {len(regex_scripts)} 条；隐藏变量与状态占位可转换，任意 HTML/脚本已隔离" if regex_scripts else "未发现 Regex 规则",
         ),
         detail("mvu", "MVU / 变量更新", mvu_status, mvu_summary),
         detail(
@@ -191,6 +227,18 @@ def build_compatibility_report(normalized: dict) -> dict:
         detail(
             "status_panel", "角色卡状态栏", "supported" if capabilities["status_panel"] else "absent",
             "检测到状态栏声明；将占位符转换为原生安全面板" if capabilities["status_panel"] else "未检测到角色卡状态栏",
+        ),
+        detail(
+            "text_status_protocol", "文本状态栏协议", "supported" if capabilities["text_status_protocol"] else "absent",
+            "支持 <text>...<end>、<status>...</status> 和分区键值状态块" if capabilities["text_status_protocol"] else "未检测到文本状态栏协议",
+        ),
+        detail(
+            "formal_state_schema", "Formal State Schema", "supported" if capabilities["formal_state_schema"] else "absent",
+            f"统一声明字段类型、可用操作和数值范围，共 {state_schema_summary.get('field_count', 0)} 个字段" if capabilities["formal_state_schema"] else "未建立状态字段模型",
+        ),
+        detail(
+            "card_scoped_aliases", "角色卡字段别名", "supported",
+            "候选映射只在当前角色卡内生效，必须确认后才会改写到唯一 canonical path",
         ),
         detail(
             "relationship_state", "关系变量", "supported" if capabilities["relationship_state"] and initial.variables else "partial" if capabilities["relationship_state"] else "absent",
@@ -213,6 +261,8 @@ def build_compatibility_report(normalized: dict) -> dict:
     native = ["generic-state", "message-ast", "state-diff"]
     if capabilities["status_panel"]:
         native.append("inline-card-state")
+    if capabilities["text_status_protocol"]:
+        native.append("text-status-panel")
     for key, renderer in (
         ("dice", "dice"),
         ("battle_check", "battle-check"),
@@ -223,7 +273,7 @@ def build_compatibility_report(normalized: dict) -> dict:
             native.append(renderer)
 
     return {
-        "version": 3,
+        "version": 4,
         "compatibility_core": "tavern-safe-v2",
         "card_format": str(normalized.get("spec", "chara_card_v2")),
         "card_format_version": str(normalized.get("spec_version", "2.0")),
@@ -233,8 +283,8 @@ def build_compatibility_report(normalized: dict) -> dict:
         "counts": {
             "enabled_lorebook_entries": len(entries),
             "disabled_lorebook_entries": len(all_entries) - len(entries),
-            "active_regex_scripts": len(regex_scripts),
-            "helper_scripts": len(helper_scripts),
+            "active_regex_scripts": len(regex_scripts) or emulated_regex_count,
+            "helper_scripts": len(helper_scripts) or emulated_helper_count,
             "assets": len(assets),
             "alternate_greetings": len(_list(normalized.get("alternate_greetings"))),
             "initial_variable_roots": len(initial.variables),
@@ -244,5 +294,6 @@ def build_compatibility_report(normalized: dict) -> dict:
         "ui_manifest": ui_manifest if capabilities["ui_manifest"] else None,
         "warnings": warnings,
         "unsupported": sorted(set(unsupported)),
-        "script_execution": "safe-subset-only",
+        "emulation": emulation or None,
+        "script_execution": "safe-native-emulation" if emulation else "safe-subset-only",
     }

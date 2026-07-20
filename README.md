@@ -11,12 +11,12 @@ AI Tavern Lite 使用 React、TypeScript、FastAPI、SQLAlchemy 和 SQLite 构�
 截至 2026 年 7 月：
 
 ```text
-后端自动测试：235 collected（Windows 预计 235 passed；非 Windows 跳过 1 项 DPAPI 测试）
-前端自动测试：61 passed
+后端自动测试：312 collected（Windows 预计 312 passed；非 Windows 预计 311 passed、1 skipped）
+前端自动测试：79 passed
 TypeScript 检查：通过
 Vite 生产构建：通过
-Alembic 版本：20260717_0001
-数据库业务表：11
+Alembic 版本：20260720_0003
+数据库业务表：12
 长会话验证：1002 条消息完整、有序返回
 ```
 
@@ -42,7 +42,10 @@ Alembic 版本：20260717_0001
 - 每个会话独立保存消息、运行时状态、时间线、草稿和滚动位置；
 - 前端默认只加载最近 50 条消息，滚动到顶部可继续加载更早消息，并保持当前阅读位置；
 - 剧情分支、状态快照和回滚；
-- 将正文与隐藏状态补丁分离，不执行角色卡携带的任意 JavaScript。
+- 将正文与隐藏状态补丁分离，不执行角色卡携带的任意 JavaScript；
+- 安全兼容 Tavern MVU JSON/YAML 初始变量、`get_message_variable`、数组路径控制器，以及 `_.set/add/insert/remove` 更新协议；
+- 当角色卡声明变量协议但主回复漏写状态块时，可自动执行一次受限状态提取；空操作不增加运行时版本，诊断会标明更新来源；
+- 角色卡初始好感、恐惧、依赖、伤势和重要记忆由原生状态面板展示，旧会话可按运行时版本安全回填。
 
 ### 工程与可靠性
 
@@ -155,7 +158,7 @@ Set-Location "D:\AI-Tavern-Lite"
 → 成功后启动服务
 ```
 
-当前 head 为 `20260717_0001`。数据库迁移失败时会尝试恢复启动前备份。初始迁移禁止破坏性降级到 `base`；需要回退数据时应使用 `backend/data/backups` 中的备份。
+当前 head 为 `20260720_0003`。数据库迁移失败时会尝试恢复启动前备份。初始迁移禁止破坏性降级到 `base`；需要回退数据时应使用 `backend/data/backups` 中的备份。
 
 ## 安全边界
 
@@ -183,6 +186,8 @@ Set-Location "D:\AI-Tavern-Lite"
 
 详细案例见 [`docs/BUG_CASES.md`](docs/BUG_CASES.md)。
 
+Tavern MVU 基础兼容见 [`TAVERN_MVU_COMPAT_2.4.3.md`](TAVERN_MVU_COMPAT_2.4.3.md)，漏写变量补救机制见 [`TAVERN_MVU_RECOVERY_2.4.3_R2.md`](TAVERN_MVU_RECOVERY_2.4.3_R2.md)，DeepSeek 非思考状态提取修复见 [`TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX2.md`](TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX2.md)，角色卡脚本意图的安全原生还原见 [`TAVERN_SAFE_EMULATION_2.4.3_HOTFIX3.md`](TAVERN_SAFE_EMULATION_2.4.3_HOTFIX3.md)。
+
 ## 当前限制
 
 - 当前以本地单用户、单应用副本为主要运行方式；
@@ -206,3 +211,25 @@ Set-Location "D:\AI-Tavern-Lite"
 ## License
 
 项目当前未声明开源许可证。公开仓库发布前需要明确许可证和第三方素材授权范围。
+
+### 2.4.3 R2 Hotfix 1：独立非流式状态提取
+
+R2 Hotfix 1 将缺失状态更新的补救请求改为独立 Provider 实例和非流式完整响应读取。补救结果从 `choices[0].message.content` 读取，不再复用主剧情流对象，也不再拼接 `delta.content`。诊断会区分空响应、Provider 错误、无效 JSON、无操作和成功应用。
+
+详见 `TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX1.md`。
+
+
+### 2.4.3 R2 Hotfix 2：DeepSeek 非思考状态提取
+
+对官方 `api.deepseek.com` 的 `deepseek-v4*` 状态补救请求显式关闭思考模式，使用 1024 token 非流式最终 JSON 输出上限。其他 OpenAI-compatible Provider 不接收 DeepSeek 专属参数。诊断新增 reasoning 数量、请求策略和截断分类，但不保存 reasoning 原文。
+
+详见 `TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX2.md`。
+
+
+### 2.4.3 R2 Hotfix 3：角色卡安全原生还原
+
+Hotfix 3 不再把可执行扩展简单视为“全部丢弃”。导入安全副本时，平台会先提取可验证的显示、Prompt 隐藏和按钮意图，再删除 JavaScript、远程导入和可执行 HTML。已识别意图由本地后端与 React 组件实现，包括月夜状态栏、数值进度条、伤势标签、重要记忆分页、自动变量补救、初始变量重置和时间线回滚。
+
+角色卡声明的每轮 ±2、每日累计绝对变化 5、0–100 边界、100/0/100 终局锁定和六阶段标签由状态引擎统一强制，不再只依赖模型遵守提示词。
+
+详见 `TAVERN_SAFE_EMULATION_2.4.3_HOTFIX3.md`。

@@ -55,6 +55,8 @@ try {
         "backend\alembic.ini",
         "backend\migrations\env.py",
         "backend\migrations\versions\20260717_0001_initial_schema.py",
+        "backend\migrations\versions\20260720_0002_decision_trace.py",
+        "backend\migrations\versions\20260720_0003_character_state_aliases.py",
         "frontend\package.json",
         "frontend\package-lock.json"
     )
@@ -230,7 +232,7 @@ try {
 
     $migrationHeadText = $migrationHeads -join "`n"
     Assert-Condition `
-        ($migrationHeads.Count -eq 1 -and $migrationHeadText -match "20260717_0001.*head") `
+        ($migrationHeads.Count -eq 1 -and $migrationHeadText -match "20260720_0003.*head") `
         "Alembic migration graph must have exactly one expected head."
 
     Write-Pass "Alembic migration graph"

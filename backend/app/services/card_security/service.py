@@ -406,7 +406,16 @@ def _sanitize_extensions(value: Any, changes: list[str]) -> dict[str, Any]:
 
 def _sanitize_normalized(normalized: dict[str, Any], changes: list[str]) -> dict[str, Any]:
     safe = copy.deepcopy(normalized if isinstance(normalized, dict) else {})
+    try:
+        from ..tavern_compat.emulation import extract_safe_emulation
+
+        emulation = extract_safe_emulation(safe)
+    except Exception:
+        emulation = {}
     safe["extensions"] = _sanitize_extensions(safe.get("extensions"), changes)
+    if emulation:
+        safe["extensions"]["ai_tavern_emulation"] = emulation
+        changes.append("将角色卡脚本意图转换为原生安全兼容清单")
 
     for field in ("name", "description", "personality", "scenario", "first_mes", "mes_example", "creator_notes", "creatorcomment"):
         original = str(safe.get(field, "") or "")
@@ -430,9 +439,16 @@ def _sanitize_normalized(normalized: dict[str, Any], changes: list[str]) -> dict
     greetings = safe.get("alternate_greetings")
     if isinstance(greetings, list):
         cleaned_greetings = []
+        seen_greetings = set()
         for item in greetings:
             cleaned, _ = _neutralize_prompt_lines(_strip_active_content(str(item or "")))
+            cleaned = cleaned.strip()[:200_000]
+            if not cleaned or cleaned in seen_greetings:
+                continue
             cleaned_greetings.append(cleaned)
+            seen_greetings.add(cleaned)
+            if len(cleaned_greetings) >= 50:
+                break
         safe["alternate_greetings"] = cleaned_greetings
 
     book = safe.get("character_book")
