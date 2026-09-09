@@ -8,6 +8,32 @@ AI Tavern Lite is built with React, TypeScript, FastAPI, SQLAlchemy and SQLite. 
 
 The project is positioned as a **2.x Preview, local single-user application**. It is both usable software and an engineering-practice portfolio project designed around AI application quality, streaming communication, data migration and compatibility.
 
+![Platform](https://img.shields.io/badge/platform-local%20Windows-blue)
+![Stack](https://img.shields.io/badge/stack-React%20%2B%20TypeScript%20%2B%20FastAPI%20%2B%20SQLite-informational)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![Node](https://img.shields.io/badge/node-22%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+**Why this is not another chat demo:**
+
+- **Untrusted cards are data, never code.** Arbitrary JavaScript shipped inside character
+  cards is never executed; card protocols are parsed, reported and compatibility-checked
+  (CCv2/v3, worldbooks, MVU, status bars) before use.
+- **Conversation is stateful engineering.** SSE streaming with race-safe session switching,
+  rollback-safe story state and timeline, Alembic-migrated SQLite with backup/restore,
+  1,002-message ordered-completeness verified.
+- **Releases are gated, not vibes.** One script (`verify-release.ps1`) checks required
+  files, environment, sensitive files, migration graph, backend tests, frontend tests and
+  production build before anything ships.
+
+## Demo
+
+No public screenshots are committed yet — they must pass the privacy checklist in
+[`docs/SCREENSHOT_CHECKLIST.md`](docs/SCREENSHOT_CHECKLIST.md) first. The fastest hands-on
+demo needs no API key: run the Quick Start below in default **Mock mode** and follow
+[`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for a 3–5 minute tour (card import →
+worldbook triggers → streaming → state trace → branch → rollback → backup/restore).
+
 ## Quality Baseline
 
 Figures below match the published `main` snapshot of this repository (a fuller suite runs locally on an unreleased branch; counts grow between releases — run the commands to see current numbers):
@@ -211,7 +237,8 @@ Cases: [`docs/BUG_CASES.md`](docs/BUG_CASES.md).
 - [`docs/BUG_CASES.md`](docs/BUG_CASES.md) — interview-ready bug and refactor cases;
 - [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) — 3–5 minute demo script;
 - [`docs/INTERVIEW_GUIDE.md`](docs/INTERVIEW_GUIDE.md) — walkthrough and common follow-up questions;
-- [`docs/RESUME_PROJECT_SECTION.md`](docs/RESUME_PROJECT_SECTION.md) — resume project section template.
+- [`docs/RESUME_PROJECT_SECTION.md`](docs/RESUME_PROJECT_SECTION.md) — resume project section template;
+- [`docs/SCREENSHOT_CHECKLIST.md`](docs/SCREENSHOT_CHECKLIST.md) — public screenshot privacy checklist.
 
 ## License
 

@@ -8,6 +8,22 @@ AI Tavern Lite 使用 React、TypeScript、FastAPI、SQLAlchemy 和 SQLite 构�
 
 项目目前定位为 **2.x Preview 本地单用户应用**。它既是可实际使用的软件，也是一个围绕 AI 应用质量、流式通信、数据迁移和兼容性设计完成的工程实践项目。
 
+![平台](https://img.shields.io/badge/platform-local%20Windows-blue)
+![技术栈](https://img.shields.io/badge/stack-React%20%2B%20TypeScript%20%2B%20FastAPI%20%2B%20SQLite-informational)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![Node](https://img.shields.io/badge/node-22%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+**为什么这不是又一个聊天 demo：**
+
+- **角色卡是不可信数据，永远不是代码。**卡片内携带的任意 JavaScript 从不执行；卡片协议（CCv2/v3、世界书、MVU、状态栏）先解析、出报告、做兼容性检查后才使用。
+- **对话是有状态工程。**SSE 流式 + 会话切换竞态防护、可回滚的剧情状态与时间线、Alembic 迁移的 SQLite + 备份/恢复，1002 条消息有序完整性已验证。
+- **发布靠门禁，不靠感觉。**一个脚本（`verify-release.ps1`）在任何发布前统一检查必需文件、环境、敏感文件、迁移图、后端测试、前端测试与生产构建。
+
+## 演示
+
+公开截图尚未提交——需先通过 [`docs/SCREENSHOT_CHECKLIST.md`](docs/SCREENSHOT_CHECKLIST.md) 的隐私清单。最快的上手演示无需 API Key：按下方快速启动以默认 **Mock 模式** 运行完整 UI，再按 [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) 走一边 3～5 分钟流程（导卡 → 世界书触发 → 流式回复 → 状态追踪 → 分支 → 回滚 → 备份/恢复）。
+
 ## 当前质量基线
 
 下列数字与本仓库已公开的 `main` 快照一致（更完整的测试套件运行在尚未发布的本地分支上；数量随版本增长，以实际运行命令为准）：
