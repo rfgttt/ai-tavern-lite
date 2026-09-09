@@ -6,20 +6,20 @@
 
 AI Tavern Lite 使用 React、TypeScript、FastAPI、SQLAlchemy 和 SQLite 构建，支持导入 Character Card V2/V3 角色卡，连接 OpenAI 兼容模型，并为每个会话维护独立的角色、Persona、世界书、剧情状态和时间线。
 
-项目目前定位为 **2.2 Preview 本地单用户应用**。它既是可实际使用的软件，也是一个围绕 AI 应用质量、流式通信、数据迁移和兼容性设计完成的工程实践项目。
+项目目前定位为 **2.x Preview 本地单用户应用**。它既是可实际使用的软件，也是一个围绕 AI 应用质量、流式通信、数据迁移和兼容性设计完成的工程实践项目。
 
 ## 当前质量基线
 
-截至 2026 年 7 月：
+下列数字与本仓库已公开的 `main` 快照一致（更完整的测试套件运行在尚未发布的本地分支上；数量随版本增长，以实际运行命令为准）：
 
 ```text
-后端自动测试：402 collected（Windows 预计 402 passed；非 Windows 预计 401 passed、1 skipped）
-前端自动测试：102 passed
+后端自动测试：312 passed（全量实跑）
+前端自动测试：79 passed
 TypeScript 检查：通过
 Vite 生产构建：通过
-Alembic 版本：20260722_0005
-数据库业务表：14
-长会话验证：1002 条消息完整、有序返回
+Alembic head：20260720_0003
+数据库业务表：12 张
+长会话完整性：1002 条消息完整、有序测试通过
 ```
 
 发布门禁由 `verify-release.ps1` 统一执行，包括必需文件、Python/Node 环境、敏感文件、Python 编译、Alembic 迁移图、后端测试、前端测试和生产构建。
@@ -106,18 +106,9 @@ http://127.0.0.1:8000
 
 默认 Mock 模式无需 API Key，可用于功能演示和离线验收。
 
-### 安卓移动网页版
+### 安卓移动网页版（开发中）
 
-移动网页版继续由 Windows 电脑保存数据库和调用模型，安卓手机只负责显示和交互。V1.1 按高内聚、低耦合原则拆出移动头部与状态折叠组件，`ChatView.tsx` 保持在项目规定的 350 行以内：
-
-```powershell
-.\allow-mobile-firewall.bat  # 第一次使用时运行一次
-.\start-mobile.bat
-```
-
-启动窗口会显示手机访问地址，并要求设置至少 12 位的本次访问密码。手机与电脑必须连接同一个可信私人 Wi-Fi。详细说明见 [`MOBILE_WEB_QUICKSTART.md`](MOBILE_WEB_QUICKSTART.md)。
-
-当前已针对 Windows 11 与 Android Chrome 设计；尚未宣称完成 iOS 真机验证。
+移动网页版正在未发布的开发分支上推进：数据与模型调用保留在 Windows 电脑，手机只负责显示与交互，规划包含本次访问密码与局域网防火墙处理。早期笔记中提到的辅助脚本与指南（`allow-mobile-firewall.bat`、`start-mobile.bat`、`MOBILE_WEB_QUICKSTART.md`）尚未包含在本公开快照中。设计目标为 Windows 11 与 Android Chrome；未宣称完成 iOS 真机验证。
 
 ## 模型配置
 
@@ -174,7 +165,7 @@ Set-Location "D:\AI-Tavern-Lite"
 → 成功后启动服务
 ```
 
-当前 head 为 `20260722_0005`。会话背景外观由独立 `session_appearances` 表持久化；Canonical 状态投影由 `canonical_status_revisions` 按消息和 revision 持久化。0004/0005 均通过迁移前数据库备份回退，不执行破坏性自动 downgrade。数据库迁移失败时会尝试恢复启动前备份。初始迁移禁止破坏性降级到 `base`；需要回退数据时应使用 `backend/data/backups` 中的备份。
+当前 head 为 `20260720_0003`。数据库迁移失败时会尝试恢复启动前备份，不执行破坏性自动 downgrade；初始迁移禁止破坏性降级到 `base`，需要回退数据时应使用 `backend/data/backups` 中的备份。（开发分支上的 0004/0005——会话背景外观表与 Canonical 状态投影表——尚未进入本快照。）
 
 ## 安全边界
 
@@ -202,9 +193,7 @@ Set-Location "D:\AI-Tavern-Lite"
 
 详细案例见 [`docs/BUG_CASES.md`](docs/BUG_CASES.md)。
 
-Tavern MVU 基础兼容见 [`TAVERN_MVU_COMPAT_2.4.3.md`](TAVERN_MVU_COMPAT_2.4.3.md)，漏写变量补救机制见 [`TAVERN_MVU_RECOVERY_2.4.3_R2.md`](TAVERN_MVU_RECOVERY_2.4.3_R2.md)，DeepSeek 非思考状态提取修复见 [`TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX2.md`](TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX2.md)，角色卡脚本意图的安全原生还原见 [`TAVERN_SAFE_EMULATION_2.4.3_HOTFIX3.md`](TAVERN_SAFE_EMULATION_2.4.3_HOTFIX3.md)。
-
-统一协议识别、开场 inline initvar 初始化与持续状态栏投影分别见 [`P0_1_UNIFIED_PROTOCOL_IDENTIFICATION.md`](P0_1_UNIFIED_PROTOCOL_IDENTIFICATION.md)、[`P0_2_OPENING_PROTOCOL_INITIALIZATION.md`](P0_2_OPENING_PROTOCOL_INITIALIZATION.md) 和 [`P0_3_PERSISTENT_STATE_PROJECTION.md`](P0_3_PERSISTENT_STATE_PROJECTION.md)。 场景字段补投影和每会话自定义背景见 [`P0_3_H1_SCENE_PROJECTION_AND_SESSION_BACKGROUND.md`](P0_3_H1_SCENE_PROJECTION_AND_SESSION_BACKGROUND.md)。 混合完整变量状态栏与背景资源加载修复见 [`P0_3_H2_H3_MIXED_STATE_AND_BACKGROUND_LOADING.md`](P0_3_H2_H3_MIXED_STATE_AND_BACKGROUND_LOADING.md)。
+Tavern MVU 兼容实现在 `backend/app/services/tavern_compat/`，配套跨卡与初始状态测试见 `backend/tests/test_tavern_compat_*.py`；行为规格文档随开发分支后续补充。
 
 ## 当前限制
 
@@ -230,27 +219,4 @@ Tavern MVU 基础兼容见 [`TAVERN_MVU_COMPAT_2.4.3.md`](TAVERN_MVU_COMPAT_2.4.
 
 本项目采用 [MIT License](LICENSE)。第三方依赖保留其各自的许可证。
 
-### 2.4.3 R2 Hotfix 1：独立非流式状态提取
-
-R2 Hotfix 1 将缺失状态更新的补救请求改为独立 Provider 实例和非流式完整响应读取。补救结果从 `choices[0].message.content` 读取，不再复用主剧情流对象，也不再拼接 `delta.content`。诊断会区分空响应、Provider 错误、无效 JSON、无操作和成功应用。
-
-详见 `TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX1.md`。
-
-
-### 2.4.3 R2 Hotfix 2：DeepSeek 非思考状态提取
-
-对官方 `api.deepseek.com` 的 `deepseek-v4*` 状态补救请求显式关闭思考模式，使用 1024 token 非流式最终 JSON 输出上限。其他 OpenAI-compatible Provider 不接收 DeepSeek 专属参数。诊断新增 reasoning 数量、请求策略和截断分类，但不保存 reasoning 原文。
-
-详见 `TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX2.md`。
-
-
-### 2.4.3 R2 Hotfix 3：角色卡安全原生还原
-
-Hotfix 3 不再把可执行扩展简单视为“全部丢弃”。导入安全副本时，平台会先提取可验证的显示、Prompt 隐藏和按钮意图，再删除 JavaScript、远程导入和可执行 HTML。已识别意图由本地后端与 React 组件实现，包括月夜状态栏、数值进度条、伤势标签、重要记忆分页、自动变量补救、初始变量重置和时间线回滚。
-
-角色卡声明的每轮 ±2、每日累计绝对变化 5、0–100 边界、100/0/100 终局锁定和六阶段标签由状态引擎统一强制，不再只依赖模型遵守提示词。
-
-详见 `TAVERN_SAFE_EMULATION_2.4.3_HOTFIX3.md`。
-
-- [P0-4-RC0：架构边界与兼容核心骨架](P0_4_RC0_ARCHITECTURE_BOUNDARIES.md)
-- [P0-4-RC0.5：领域边界收口](P0_4_RC0_5_DOMAIN_BOUNDARY_CONSOLIDATION.md)
+> 注：2.4.3 系列（状态提取热修复、角色卡安全还原、P0-4 架构收口）开发于未发布分支，其专项文档与部分实现尚未纳入本公开快照；随发布节奏补充。

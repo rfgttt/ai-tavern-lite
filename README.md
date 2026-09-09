@@ -10,16 +10,16 @@ The project is positioned as a **2.x Preview, local single-user application**. I
 
 ## Quality Baseline
 
-As of the 2026-09-09 local verification run:
+Figures below match the published `main` snapshot of this repository (a fuller suite runs locally on an unreleased branch; counts grow between releases — run the commands to see current numbers):
 
 ```text
-Backend pytest:      466 passed (full suite, real run)
-Frontend vitest:     102 passed
-TypeScript check:    pass
-Vite production build: pass
-Alembic head:        20260722_0005
-Database tables:     14 business tables
-Long-session check:  1,002 messages returned complete and ordered
+Backend pytest:            312 passed (full suite, real run)
+Frontend vitest:           79 passed
+TypeScript check:          pass
+Vite production build:     pass
+Alembic head:              20260720_0003
+Database tables:           12 business tables
+Long-session integrity:    1,002-message ordered-completeness test passing
 ```
 
 Release gating is executed by `verify-release.ps1`: required files, Python/Node environment, sensitive-file checks, Python compilation, Alembic migration graph, backend tests, frontend tests and production build.
@@ -106,16 +106,9 @@ http://127.0.0.1:8000
 
 Mock mode works without an API key — useful for feature demos and offline acceptance.
 
-### Android mobile web
+### Android mobile web (in development)
 
-The mobile web client keeps data and model calls on the Windows PC; the phone only renders and interacts. Quick start:
-
-```powershell
-.\allow-mobile-firewall.bat  # run once
-.\start-mobile.bat
-```
-
-The launch window shows the phone URL and requires a per-session password of at least 12 characters. Phone and PC must share one trusted private Wi-Fi. Details: [`MOBILE_WEB_QUICKSTART.md`](MOBILE_WEB_QUICKSTART.md). Designed for Windows 11 + Android Chrome; iOS device verification is not claimed.
+A mobile web client is under active development on an unreleased branch: it keeps data and model calls on the Windows PC while the phone only renders and interacts, with a per-session access password and LAN firewall handling. The helper scripts and guide referenced by earlier notes (`allow-mobile-firewall.bat`, `start-mobile.bat`, `MOBILE_WEB_QUICKSTART.md`) are not part of this public snapshot yet. Designed target: Windows 11 + Android Chrome; iOS device verification is not claimed.
 
 ## Model Configuration
 
@@ -172,7 +165,7 @@ SQLite integrity backup
 → start service only on success
 ```
 
-Current head is `20260722_0005`. Migration failures attempt to restore the pre-start backup; destructive downgrade to `base` is forbidden — roll data back with backups under `backend/data/backups`.
+Current head is `20260720_0003`. Migration failures attempt to restore the pre-start backup; destructive automatic downgrade is never performed. Downgrade to `base` is forbidden — roll data back with backups under `backend/data/backups`. (Migrations 0004/0005 — session appearance tables and canonical status projection tables — exist only on the unreleased development branch and are not part of this snapshot.)
 
 ## Security Boundaries
 
@@ -199,6 +192,8 @@ Risk controls for AI-assisted changes:
 - regression tests for historical bugs.
 
 Cases: [`docs/BUG_CASES.md`](docs/BUG_CASES.md).
+
+> Note: the 2.4.3 series (state-extraction hotfixes, safe card restoration, P0-4 architecture consolidation) was developed on the unreleased branch; its dedicated documents and some implementations are not yet part of this public snapshot and will land with future releases.
 
 ## Current Limitations
 
