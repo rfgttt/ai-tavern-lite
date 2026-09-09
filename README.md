@@ -2,7 +2,7 @@
 
 # AI Tavern Lite
 
-> A local-first, rollback-safe, fully tested AI character-card roleplay platform.
+> A local-first, rollback-safe AI character-card roleplay platform with automated regression and release gates.
 
 AI Tavern Lite is built with React, TypeScript, FastAPI, SQLAlchemy and SQLite. It imports Character Card V2/V3 cards, connects to OpenAI-compatible models, and maintains per-session characters, personas, worldbooks, story state and timelines.
 
@@ -16,15 +16,16 @@ The project is positioned as a **2.x Preview, local single-user application**. I
 
 **Why this is not another chat demo:**
 
-- **Untrusted cards are data, never code.** Arbitrary JavaScript shipped inside character
-  cards is never executed; card protocols are parsed, reported and compatibility-checked
-  (CCv2/v3, worldbooks, MVU, status bars) before use.
+- **Imported cards are treated as untrusted data, not executable code.** Card-provided
+  JavaScript is never executed; EJS markup is only evaluated against a read-only
+  allowlist subset and everything else is stripped. Card protocols are parsed,
+  reported and compatibility-checked (CCv2/v3, worldbooks, MVU, status bars) before use.
 - **Conversation is stateful engineering.** SSE streaming with race-safe session switching,
   rollback-safe story state and timeline, Alembic-migrated SQLite with backup/restore,
   1,002-message ordered-completeness verified.
-- **Releases are gated, not vibes.** One script (`verify-release.ps1`) checks required
-  files, environment, sensitive files, migration graph, backend tests, frontend tests and
-  production build before anything ships.
+- **Release verification is automated.** One local script (`verify-release.ps1`) checks
+  required files, environments, sensitive files, the Alembic migration graph, backend
+  tests, frontend tests and the production build before a release is cut.
 
 ## Demo
 

@@ -2,7 +2,7 @@
 
 # AI Tavern Lite
 
-> 本地优先、可回滚、可测试的 AI 角色卡运行平台。
+> 本地优先、可回滚的 AI 角色卡运行平台，具备自动化回归测试与发布门禁。
 
 AI Tavern Lite 使用 React、TypeScript、FastAPI、SQLAlchemy 和 SQLite 构建，支持导入 Character Card V2/V3 角色卡，连接 OpenAI 兼容模型，并为每个会话维护独立的角色、Persona、世界书、剧情状态和时间线。
 
@@ -16,9 +16,9 @@ AI Tavern Lite 使用 React、TypeScript、FastAPI、SQLAlchemy 和 SQLite 构�
 
 **为什么这不是又一个聊天 demo：**
 
-- **角色卡是不可信数据，永远不是代码。**卡片内携带的任意 JavaScript 从不执行；卡片协议（CCv2/v3、世界书、MVU、状态栏）先解析、出报告、做兼容性检查后才使用。
+- **导入的角色卡按不可信数据处理，不是可执行代码。**卡片携带的 JavaScript 从不执行；EJS 模板仅按只读白名单子集求值，其余一律剥离。卡片协议（CCv2/v3、世界书、MVU、状态栏）先解析、出报告、做兼容性检查后才使用。
 - **对话是有状态工程。**SSE 流式 + 会话切换竞态防护、可回滚的剧情状态与时间线、Alembic 迁移的 SQLite + 备份/恢复，1002 条消息有序完整性已验证。
-- **发布靠门禁，不靠感觉。**一个脚本（`verify-release.ps1`）在任何发布前统一检查必需文件、环境、敏感文件、迁移图、后端测试、前端测试与生产构建。
+- **发布验证是自动化的。**一个本地脚本（`verify-release.ps1`）在出发布版本前统一检查必需文件、环境、敏感文件、Alembic 迁移图、后端测试、前端测试与生产构建。
 
 ## 演示
 
