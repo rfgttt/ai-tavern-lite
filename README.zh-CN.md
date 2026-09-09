@@ -22,7 +22,7 @@ AI Tavern Lite 使用 React、TypeScript、FastAPI、SQLAlchemy 和 SQLite 构�
 
 ## 演示
 
-公开截图尚未提交——需先通过 [`docs/SCREENSHOT_CHECKLIST.md`](docs/SCREENSHOT_CHECKLIST.md) 的隐私清单。最快的上手演示无需 API Key：按下方快速启动以默认 **Mock 模式** 运行完整 UI，再按 [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) 走一边 3～5 分钟流程（导卡 → 世界书触发 → 流式回复 → 状态追踪 → 分支 → 回滚 → 备份/恢复）。
+公开截图尚未提交——需先通过 [`docs/SCREENSHOT_CHECKLIST.md`](docs/SCREENSHOT_CHECKLIST.md) 的隐私清单。最快的上手演示无需 API Key：按下方快速启动以默认 **Mock 模式** 运行完整 UI，再按 [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) 走一边 3～5 分钟流程（导卡 → 世界书触发 → 流式回复 → 状态追踪 → 分支 → 回滚）。
 
 ## 当前质量基线
 

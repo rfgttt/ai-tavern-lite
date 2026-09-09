@@ -32,7 +32,7 @@ No public screenshots are committed yet — they must pass the privacy checklist
 [`docs/SCREENSHOT_CHECKLIST.md`](docs/SCREENSHOT_CHECKLIST.md) first. The fastest hands-on
 demo needs no API key: run the Quick Start below in default **Mock mode** and follow
 [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for a 3–5 minute tour (card import →
-worldbook triggers → streaming → state trace → branch → rollback → backup/restore).
+worldbook triggers → streaming → state trace → branch → rollback).
 
 ## Quality Baseline
 
