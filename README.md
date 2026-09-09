@@ -1,68 +1,71 @@
-﻿# AI Tavern Lite
+**English | [中文](README.zh-CN.md)**
 
-> 本地优先、可回滚、可测试的 AI 角色卡运行平台。
+# AI Tavern Lite
 
-AI Tavern Lite 使用 React、TypeScript、FastAPI、SQLAlchemy 和 SQLite 构建，支持导入 Character Card V2/V3 角色卡，连接 OpenAI 兼容模型，并为每个会话维护独立的角色、Persona、世界书、剧情状态和时间线。
+> A local-first, rollback-safe, fully tested AI character-card roleplay platform.
 
-项目目前定位为 **2.2 Preview 本地单用户应用**。它既是可实际使用的软件，也是一个围绕 AI 应用质量、流式通信、数据迁移和兼容性设计完成的工程实践项目。
+AI Tavern Lite is built with React, TypeScript, FastAPI, SQLAlchemy and SQLite. It imports Character Card V2/V3 cards, connects to OpenAI-compatible models, and maintains per-session characters, personas, worldbooks, story state and timelines.
 
-## 当前质量基线
+The project is positioned as a **2.x Preview, local single-user application**. It is both usable software and an engineering-practice portfolio project designed around AI application quality, streaming communication, data migration and compatibility.
 
-截至 2026 年 7 月：
+## Quality Baseline
+
+As of the 2026-09-09 local verification run:
 
 ```text
-后端自动测试：312 collected（Windows 预计 312 passed；非 Windows 预计 311 passed、1 skipped）
-前端自动测试：79 passed
-TypeScript 检查：通过
-Vite 生产构建：通过
-Alembic 版本：20260720_0003
-数据库业务表：12
-长会话验证：1002 条消息完整、有序返回
+Backend pytest:      466 passed (full suite, real run)
+Frontend vitest:     102 passed
+TypeScript check:    pass
+Vite production build: pass
+Alembic head:        20260722_0005
+Database tables:     14 business tables
+Long-session check:  1,002 messages returned complete and ordered
 ```
 
-发布门禁由 `verify-release.ps1` 统一执行，包括必需文件、Python/Node 环境、敏感文件、Python 编译、Alembic 迁移图、后端测试、前端测试和生产构建。
+Release gating is executed by `verify-release.ps1`: required files, Python/Node environment, sensitive-file checks, Python compilation, Alembic migration graph, backend tests, frontend tests and production build.
 
-## 主要能力
+## Key Capabilities
 
-### 角色卡与内容管理
+### Character cards & content management
 
-- 导入 Character Card V2/V3 JSON 与 PNG 角色卡；
-- 创建、编辑、删除和导出角色；
-- 保留未知扩展字段，严格输出 CCv3 结构；
-- 世界书条目增删改查、关键词触发、常驻条目和概率字段；
-- 主开场白与备用开场白编辑、排序、去重和预览；
-- 兼容性报告展示角色卡协议、世界书、MVU、状态栏和未知扩展。
+- Import Character Card V2/V3 from JSON and PNG;
+- Create, edit, delete and export characters;
+- Preserve unknown extension fields, strict CCv3 output structure;
+- Worldbook entries with CRUD, keyword triggers, always-on entries and probability fields;
+- Primary/alternate greetings editing, ordering, dedup and preview;
+- Compatibility reports covering card protocol, worldbook, MVU, status bars and unknown extensions.
 
-### 会话与沉浸式运行时
+### Sessions & immersive runtime
 
-- 单角色与多人编组会话；
-- Persona 绑定、主角色选择、自定义标题和开场白来源；
-- 自定义初始状态 JSON，并拒绝危险路径和超限内容；
-- SSE 流式回复、停止生成、重新生成和 Prompt 预览；
-- 每个会话独立保存消息、运行时状态、时间线、草稿和滚动位置；
-- 前端默认只加载最近 50 条消息，滚动到顶部可继续加载更早消息，并保持当前阅读位置；
-- 剧情分支、状态快照和回滚；
-- 将正文与隐藏状态补丁分离，不执行角色卡携带的任意 JavaScript；
-- 安全兼容 Tavern MVU JSON/YAML 初始变量、`get_message_variable`、数组路径控制器，以及 `_.set/add/insert/remove` 更新协议；
-- 当角色卡声明变量协议但主回复漏写状态块时，可自动执行一次受限状态提取；空操作不增加运行时版本，诊断会标明更新来源；
-- 角色卡初始好感、恐惧、依赖、伤势和重要记忆由原生状态面板展示，旧会话可按运行时版本安全回填。
+- Single-character and multi-character group sessions;
+- Persona binding, main-character selection, custom titles and greeting sources;
+- Custom initial-state JSON with rejection of dangerous paths and oversized content;
+- SSE streaming replies, stop generation, regeneration and prompt preview;
+- Per-session storage of messages, runtime state, timeline, drafts and scroll position;
+- Frontend loads the latest 50 messages by default; scroll-to-top pagination keeps reading position;
+- Story branching, state snapshots and rollback;
+- Body text is separated from hidden state-operation contracts; arbitrary JavaScript shipped inside cards is never executed;
+- P4.0 unifies `<tavern_state>`, Tavern MVU commands, JSONPatch, variable blocks and state-recovery output into the internal `ai-tavern-state-operations/1` contract, shown as Decision Trace (Contract → Alias → Policy → Schema → Apply);
+- Safe-compatible Tavern MVU JSON/YAML initial variables, `get_message_variable`, array-path controllers and the `_.set/add/insert/remove` update protocol;
+- When a card declares a variable protocol but the main reply omits the state block, one bounded state extraction runs automatically; no-op extractions do not bump the runtime version;
+- Card-declared initial affection, fear, dependency, injuries and key memories are rendered by the native status panel; old sessions backfill safely by runtime version.
 
-### 工程与可靠性
+### Engineering & reliability
 
-- Zustand Store 按角色、会话、聊天、设置和 UI 拆分；
-- 后端聊天流程由 ChatOrchestrator 统一编排；
-- 模型配置在写入待生成消息前完成校验；
-- 浏览器断开或切换会话后，旧流回调不会污染新会话；
-- 同资源并发请求去重，旧响应不能覆盖当前会话；
-- 最近会话缓存有界，分页状态按会话隔离，旧请求不能串入当前会话；
-- Alembic 管理数据库版本，旧库接管和失败恢复均有专项测试；
-- 诊断日志与导出包默认脱敏，不包含 API Key、完整 Prompt 或完整聊天正文。
+- Zustand stores split by character, session, conversation, chat, settings and UI, with a single explicit owner for messages/runtime state;
+- Backend chat flow orchestrated by `ChatOrchestrator`; stream coordination, state recovery, observed side effects and message lifecycle each have their own owner;
+- Model configuration validated before the pending message is written;
+- Old stream callbacks cannot pollute a new session after browser disconnect or session switch;
+- Concurrent requests to the same resource are deduplicated; stale responses cannot overwrite the current session;
+- Bounded recent-session cache; pagination state isolated per session;
+- Alembic-managed database versions with dedicated takeover and failure-recovery tests;
+- Diagnostics logs and export bundles are redacted by default: no API keys, no full prompts, no full chat transcripts.
 
-## 技术架构
+## Architecture
 
 ```mermaid
 flowchart LR
-    U[浏览器用户] --> R[React + TypeScript]
+    U[Browser user] --> R[React + TypeScript]
     R --> Z[Zustand Slices]
     Z -->|HTTP / JSON| A[FastAPI Routers]
     Z -->|SSE| A
@@ -75,18 +78,18 @@ flowchart LR
     A --> G[Diagnostics / Self-test]
 ```
 
-详细说明见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-## 快速启动
+## Quick Start
 
-### 环境
+### Requirements
 
-- Windows 10/11；
-- Python 3.11；
-- Node.js 22 或更高版本；
-- npm。
+- Windows 10/11;
+- Python 3.11;
+- Node.js 22+;
+- npm.
 
-### 安装与启动
+### Install & run
 
 ```powershell
 Set-Location "D:\AI-Tavern-Lite"
@@ -95,48 +98,59 @@ Set-Location "D:\AI-Tavern-Lite"
 .\start.ps1
 ```
 
-启动后访问：
+Then open:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-默认 Mock 模式无需 API Key，可用于功能演示和离线验收。
+Mock mode works without an API key — useful for feature demos and offline acceptance.
 
-## 模型配置
+### Android mobile web
 
-在“设置”页面关闭 Mock 模式，然后填写：
+The mobile web client keeps data and model calls on the Windows PC; the phone only renders and interacts. Quick start:
 
-- OpenAI 兼容 Base URL；
-- API Key；
-- Model ID；
-- Temperature、Top P、Max Tokens 等生成参数。
+```powershell
+.\allow-mobile-firewall.bat  # run once
+.\start-mobile.bat
+```
 
-前端会在发送前检查配置；后端会再次检查，并在配置缺失、不安全 URL 或 Provider 初始化失败时返回明确错误，避免留下空消息或脏数据。
+The launch window shows the phone URL and requires a per-session password of at least 12 characters. Phone and PC must share one trusted private Wi-Fi. Details: [`MOBILE_WEB_QUICKSTART.md`](MOBILE_WEB_QUICKSTART.md). Designed for Windows 11 + Android Chrome; iOS device verification is not claimed.
 
-## 测试与发布验证
+## Model Configuration
 
-完整验证：
+Turn off Mock mode in Settings, then fill in:
+
+- OpenAI-compatible Base URL;
+- API Key;
+- Model ID;
+- Temperature, Top P, Max Tokens and other generation parameters.
+
+The frontend checks configuration before sending; the backend re-checks and fails with explicit errors on missing config, unsafe URLs or provider initialization failures, so no empty messages or dirty data are left behind.
+
+## Testing & Release Verification
+
+Full gate:
 
 ```powershell
 .\verify-release.ps1 -SkipNpmCi
 ```
 
-前端单独验证：
+Frontend only:
 
 ```powershell
 Set-Location .\frontend
 npm run check
 ```
 
-后端单独验证：
+Backend only:
 
 ```powershell
 Set-Location .\backend
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-数据库状态：
+Database state:
 
 ```powershell
 Set-Location "D:\AI-Tavern-Lite"
@@ -145,91 +159,65 @@ Set-Location "D:\AI-Tavern-Lite"
 .\scripts\database-migrate.ps1 validate
 ```
 
-测试范围与人工验收记录见 [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md)。
+Test scope and manual acceptance records: [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md).
 
-## 数据迁移与备份
+## Data Migration & Backup
 
-应用启动时执行：
+On startup the app runs:
 
 ```text
-创建 SQLite 一致性备份
-→ Alembic 升级到 head
-→ 校验表、字段和关键索引
-→ 成功后启动服务
+SQLite integrity backup
+→ Alembic upgrade to head
+→ verify tables, columns and key indexes
+→ start service only on success
 ```
 
-当前 head 为 `20260720_0003`。数据库迁移失败时会尝试恢复启动前备份。初始迁移禁止破坏性降级到 `base`；需要回退数据时应使用 `backend/data/backups` 中的备份。
+Current head is `20260722_0005`. Migration failures attempt to restore the pre-start backup; destructive downgrade to `base` is forbidden — roll data back with backups under `backend/data/backups`.
 
-## 安全边界
+## Security Boundaries
 
-- 默认只监听 `127.0.0.1`；
-- API Key 不返回前端明文，不写入普通日志；
-- 角色卡 JavaScript、EJS 和远程脚本不直接执行；
-- Markdown 经过安全清洗；
-- 包含 SSRF、请求大小、速率限制和生产配置 fail-closed 测试；
-- 公开仓库不得包含 `.env`、数据库、备份、诊断包、`node_modules` 或构建产物。
+- Listens on `127.0.0.1` by default;
+- API keys are never returned to the frontend in plaintext and never written to ordinary logs; keys are stored via Windows DPAPI;
+- Card JavaScript, EJS and remote scripts are not executed;
+- Markdown goes through sanitization;
+- SSRF, request-size, rate-limit and production-config fail-closed tests included;
+- The public repository must never contain `.env`, databases, backups, diagnostic bundles, `node_modules` or build artifacts.
 
-本地开发模式可使用 `auth=False`。公开部署前必须启用认证、可信 Host、生产环境变量和访问控制。
+Local development may use `auth=False`. Public deployment requires authentication, trusted hosts, production environment variables and access control.
 
-## AI 辅助开发说明
+## AI-Assisted Development Note
 
-本项目使用 AI 工具辅助代码生成、重构建议和问题分析。项目中的需求取舍、功能验收、错误复现、日志判断、测试执行、版本控制和回归验证由项目维护者持续参与完成。
+This project uses AI tooling for code generation, refactoring suggestions and analysis. Requirement trade-offs, feature acceptance, bug reproduction, log judgement, test execution, version control and regression verification were continuously performed by the project maintainer.
 
-为降低 AI 辅助修改风险，项目采用：
+Risk controls for AI-assisted changes:
 
-- 小步 Git 提交；
-- 修改前源码哈希校验和备份；
-- 自动测试与生产构建门禁；
-- Mock 与真实模型双路径验收；
-- 对大文件进行模块化拆分；
-- 对历史 Bug 建立回归测试。
+- small-step Git commits;
+- source-hash checks and backups before edits;
+- automated tests and production-build gates;
+- Mock + real-model dual-path acceptance;
+- modular splits for oversized files;
+- regression tests for historical bugs.
 
-详细案例见 [`docs/BUG_CASES.md`](docs/BUG_CASES.md)。
+Cases: [`docs/BUG_CASES.md`](docs/BUG_CASES.md).
 
-Tavern MVU 基础兼容见 [`TAVERN_MVU_COMPAT_2.4.3.md`](TAVERN_MVU_COMPAT_2.4.3.md)，漏写变量补救机制见 [`TAVERN_MVU_RECOVERY_2.4.3_R2.md`](TAVERN_MVU_RECOVERY_2.4.3_R2.md)，DeepSeek 非思考状态提取修复见 [`TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX2.md`](TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX2.md)，角色卡脚本意图的安全原生还原见 [`TAVERN_SAFE_EMULATION_2.4.3_HOTFIX3.md`](TAVERN_SAFE_EMULATION_2.4.3_HOTFIX3.md)。
+## Current Limitations
 
-## 当前限制
+- Local single-user, single-app-copy operation is the primary mode;
+- SQLite, stop-generation state and local caches are not designed for horizontal scaling;
+- No TTS, speech recognition, image generation or vector database;
+- Arbitrary third-party SillyTavern/Risu scripts are not guaranteed to run equivalently;
+- 1,002-message integrity test passed and cursor pagination is wired on both ends; virtual lists, timeline pagination and prompt-history query optimization remain future performance work;
+- The repo carries production-oriented configuration, but public-internet deployment is out of scope for this portfolio's acceptance.
 
-- 当前以本地单用户、单应用副本为主要运行方式；
-- SQLite、停止生成状态和本地缓存尚未针对多实例水平扩展；
-- 未实现 TTS、语音识别、图片生成和向量数据库；
-- 不保证任意第三方 SillyTavern/Risu 脚本等价运行；
-- 1002 条消息已经通过完整性测试，前后端已接入游标分页；虚拟列表、时间线分页和 Prompt 历史查询优化仍属于后续性能工作；
-- 仓库包含生产导向配置，但公网部署不属于当前作品集验收范围。
+## Portfolio Documents
 
-## 作品集资料
-
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)：系统架构、请求链路和设计边界；
-- [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md)：自动测试、人工验收和质量结论；
-- [`docs/BUG_CASES.md`](docs/BUG_CASES.md)：可用于面试讲解的 Bug 与重构案例；
-- [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)：3～5 分钟演示脚本；
-- [`docs/INTERVIEW_GUIDE.md`](docs/INTERVIEW_GUIDE.md)：项目讲解与常见追问；
-- [`docs/RESUME_PROJECT_SECTION.md`](docs/RESUME_PROJECT_SECTION.md)：简历项目经历模板；
-- [`docs/SCREENSHOT_CHECKLIST.md`](docs/SCREENSHOT_CHECKLIST.md)：公开仓库截图清单；
-- [`docs/LEGACY_README_2_2_PREVIEW.md`](docs/LEGACY_README_2_2_PREVIEW.md)：原详细功能说明存档。
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system architecture, request chain, design boundaries;
+- [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md) — automated tests, manual acceptance, quality conclusions;
+- [`docs/BUG_CASES.md`](docs/BUG_CASES.md) — interview-ready bug and refactor cases;
+- [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) — 3–5 minute demo script;
+- [`docs/INTERVIEW_GUIDE.md`](docs/INTERVIEW_GUIDE.md) — walkthrough and common follow-up questions;
+- [`docs/RESUME_PROJECT_SECTION.md`](docs/RESUME_PROJECT_SECTION.md) — resume project section template.
 
 ## License
 
-项目当前未声明开源许可证。公开仓库发布前需要明确许可证和第三方素材授权范围。
-
-### 2.4.3 R2 Hotfix 1：独立非流式状态提取
-
-R2 Hotfix 1 将缺失状态更新的补救请求改为独立 Provider 实例和非流式完整响应读取。补救结果从 `choices[0].message.content` 读取，不再复用主剧情流对象，也不再拼接 `delta.content`。诊断会区分空响应、Provider 错误、无效 JSON、无操作和成功应用。
-
-详见 `TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX1.md`。
-
-
-### 2.4.3 R2 Hotfix 2：DeepSeek 非思考状态提取
-
-对官方 `api.deepseek.com` 的 `deepseek-v4*` 状态补救请求显式关闭思考模式，使用 1024 token 非流式最终 JSON 输出上限。其他 OpenAI-compatible Provider 不接收 DeepSeek 专属参数。诊断新增 reasoning 数量、请求策略和截断分类，但不保存 reasoning 原文。
-
-详见 `TAVERN_MVU_RECOVERY_2.4.3_R2_HOTFIX2.md`。
-
-
-### 2.4.3 R2 Hotfix 3：角色卡安全原生还原
-
-Hotfix 3 不再把可执行扩展简单视为“全部丢弃”。导入安全副本时，平台会先提取可验证的显示、Prompt 隐藏和按钮意图，再删除 JavaScript、远程导入和可执行 HTML。已识别意图由本地后端与 React 组件实现，包括月夜状态栏、数值进度条、伤势标签、重要记忆分页、自动变量补救、初始变量重置和时间线回滚。
-
-角色卡声明的每轮 ±2、每日累计绝对变化 5、0–100 边界、100/0/100 终局锁定和六阶段标签由状态引擎统一强制，不再只依赖模型遵守提示词。
-
-详见 `TAVERN_SAFE_EMULATION_2.4.3_HOTFIX3.md`。
+This project is licensed under the [MIT License](LICENSE). Third-party dependencies retain their respective licenses.
