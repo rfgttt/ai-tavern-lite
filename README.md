@@ -221,3 +221,4 @@ Cases: [`docs/BUG_CASES.md`](docs/BUG_CASES.md).
 ## License
 
 This project is licensed under the [MIT License](LICENSE). Third-party dependencies retain their respective licenses.
+中文说明见 [README.zh-CN.md](README.zh-CN.md)。
